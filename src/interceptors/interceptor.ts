@@ -1,5 +1,5 @@
 import { UnorderedMap } from 'frl-ts-utils/lib/collections';
-import { Assert, isNull, reinterpretCast } from 'frl-ts-utils/lib/functions';
+import { Assert, isNull, reinterpretCast, isPrimitiveOfType } from 'frl-ts-utils/lib/functions';
 import { MethodKeyOf, toDeepReadonly, PropertyKeyOf, DeepReadonly, ExtractDelegate } from 'frl-ts-utils/lib/types';
 import { UpdateRef } from '../update-ref';
 import { FunctionInterceptionParams } from './create-intercepted-function';
@@ -14,12 +14,12 @@ export class Interceptor<T>
     }
 
     public readonly subject: T;
-    private readonly _interceptedMembers: UnorderedMap<keyof T, UpdateRef<PropertyDescriptor>>;
+    private readonly _interceptedMembers: UnorderedMap<keyof T, UpdateRef<PropertyDescriptor | Function>>;
 
     public constructor(subject: T)
     {
         this.subject = Assert.IsDefined(subject, 'subject');
-        this._interceptedMembers = new UnorderedMap<keyof T, UpdateRef<PropertyDescriptor>>();
+        this._interceptedMembers = new UnorderedMap<keyof T, UpdateRef<PropertyDescriptor | Function>>();
     }
 
     public addMethod<TMethodKey extends MethodKeyOf<T>>(
@@ -56,7 +56,11 @@ export class Interceptor<T>
         if (isNull(descriptors))
             throw new Error(`${memberKey} member hasn't been registered.`);
 
-        Object.defineProperty(this.subject, memberKey, descriptors.oldValue);
+        if (isPrimitiveOfType('function', descriptors.oldValue))
+            this.subject[memberKey] = reinterpretCast<T[keyof T]>(descriptors.oldValue);
+        else
+            Object.defineProperty(this.subject, memberKey, descriptors.oldValue);
+
         this._interceptedMembers.delete(toDeepReadonly(memberKey));
         return this;
     }
@@ -64,8 +68,12 @@ export class Interceptor<T>
     public clear(): void
     {
         for (const entry of this._interceptedMembers)
-            Object.defineProperty(this.subject, entry.key, entry.value.oldValue);
-
+        {
+            if (isPrimitiveOfType('function', entry.value.oldValue))
+                this.subject[entry.key] = reinterpretCast<T[DeepReadonly<keyof T>]>(entry.value.oldValue);
+            else
+                Object.defineProperty(this.subject, entry.key, entry.value.oldValue);
+        }
         this._interceptedMembers.clear();
     }
 
