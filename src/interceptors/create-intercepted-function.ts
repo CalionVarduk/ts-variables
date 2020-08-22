@@ -15,7 +15,7 @@ export type FunctionInterceptionParams<
     onInvoking?(func: TFunction, that: Nullable<TThat>, args: Parameters<TFunction>): FunctionInvocationStartResult;
     onInvoked?(func: TFunction, that: Nullable<TThat>, result?: ReturnType<TFunction>): void;
     onCancelled?(func: TFunction, that: Nullable<TThat>, args: Parameters<TFunction>): Undefinable<ReturnType<TFunction>>;
-    onError?(func: TFunction, that: Nullable<TThat>, error: any): void;
+    onError?(func: TFunction, that: Nullable<TThat>, error: any): Undefinable<ReturnType<TFunction>>;
 };
 
 export function createInterceptedFunction<
@@ -29,7 +29,7 @@ export function createInterceptedFunction<
     if (!isNull(that))
         func = reinterpretCast<TFunction>(func.bind(that));
 
-    const result = function(...args: Parameters<TFunction>): Undefinable<ReturnType<TFunction>>
+    return function(...args: Parameters<TFunction>): Undefinable<ReturnType<TFunction>>
     {
         const cancel = !isUndefined(params.onInvoking) &&
             params.onInvoking(func, that, args) === FunctionInvocationStartResult.Cancel;
@@ -61,12 +61,11 @@ export function createInterceptedFunction<
             if (callFailed)
             {
                 if (!isUndefined(params.onError))
-                    params.onError(func, that, callError);
+                    callResult = params.onError(func, that, callError);
             }
             else if (!isUndefined(params.onInvoked))
                 params.onInvoked(func, that, callResult);
         }
         return callResult;
     };
-    return result;
 }

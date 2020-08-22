@@ -89,8 +89,7 @@ function defineField<
             get: isUndefined(params.getterParams) ? getter : createInterceptedFunction(getter, that, params.getterParams),
             set: isUndefined(params.setterParams) ? setter : createInterceptedFunction(setter, that, params.setterParams),
             configurable: descriptor.configurable,
-            enumerable: descriptor.enumerable,
-            writable: descriptor.writable
+            enumerable: descriptor.enumerable
         });
 }
 

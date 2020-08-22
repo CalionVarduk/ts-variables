@@ -1,6 +1,6 @@
 import { UnorderedMap } from 'frl-ts-utils/lib/collections';
-import { Assert, isNull } from 'frl-ts-utils/lib/functions';
-import { MethodKeyOf, toDeepReadonly, PropertyKeyOf } from 'frl-ts-utils/lib/types';
+import { Assert, isNull, reinterpretCast } from 'frl-ts-utils/lib/functions';
+import { MethodKeyOf, toDeepReadonly, PropertyKeyOf, DeepReadonly, ExtractDelegate } from 'frl-ts-utils/lib/types';
 import { UpdateRef } from '../update-ref';
 import { FunctionInterceptionParams } from './create-intercepted-function';
 import { PropertyInterceptionParams, createInterceptedProperty } from './create-intercepted-property';
@@ -24,14 +24,14 @@ export class Interceptor<T>
 
     public addMethod<TMethodKey extends MethodKeyOf<T>>(
         methodKey: TMethodKey,
-        params: FunctionInterceptionParams<T[TMethodKey], T>):
+        params: FunctionInterceptionParams<ExtractDelegate<T[TMethodKey]>, T>):
         this
     {
-        if (this._interceptedMembers.has(toDeepReadonly(methodKey)))
+        if (this._interceptedMembers.has(reinterpretCast<DeepReadonly<keyof T>>(methodKey)))
             throw new Error(`'${methodKey}' method has already been registered.`);
 
         const descriptors = createInterceptedMethod(this.subject, methodKey, params);
-        this._interceptedMembers.set(toDeepReadonly(methodKey), descriptors);
+        this._interceptedMembers.set(reinterpretCast<DeepReadonly<keyof T>>(methodKey), descriptors);
         return this;
     }
 
@@ -40,12 +40,12 @@ export class Interceptor<T>
         params: PropertyInterceptionParams<T, TPropertyKey>):
         this
     {
-        if (this._interceptedMembers.has(toDeepReadonly(propertyKey)))
+        if (this._interceptedMembers.has(reinterpretCast<DeepReadonly<keyof T>>(propertyKey)))
             throw new Error(`'${propertyKey}' property has already been registered.`);
 
         const descriptors = createInterceptedProperty(this.subject, propertyKey, params);
         if (descriptors.hasChanged)
-            this._interceptedMembers.set(toDeepReadonly(propertyKey), descriptors);
+            this._interceptedMembers.set(reinterpretCast<DeepReadonly<keyof T>>(propertyKey), descriptors);
 
         return this;
     }
