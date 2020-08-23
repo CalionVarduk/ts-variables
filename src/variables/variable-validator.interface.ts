@@ -1,5 +1,5 @@
 import { IEvent } from 'frl-ts-utils/lib/events';
-import { IVariableValidatorState } from './variable-validator-state.interface';
+import { VariableValidatorState } from './variable-validator-state';
 import { VariableValidatedEvent } from './variable-validated-event';
 
 export interface IVariableValidator
@@ -8,7 +8,7 @@ export interface IVariableValidator
     readonly isAttached: boolean;
     readonly isValid: boolean;
     readonly hasWarnings: boolean;
-    readonly state: IVariableValidatorState;
+    readonly state: VariableValidatorState;
     readonly onValidated: IEvent<VariableValidatedEvent>;
 
     detach(): void;

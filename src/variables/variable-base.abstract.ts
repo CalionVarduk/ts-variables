@@ -1,7 +1,5 @@
 import { IDisposable } from 'frl-ts-utils/lib/disposable.interface';
 import { IVariable } from './variable.interface';
-import { IVariableChangeTracker } from './variable-change-tracker.interface';
-import { IVariableValidator } from './variable-validator.interface';
 import { VariableChangeTrackerBase } from './variable-change-tracker-base.abstract';
 import { VariableValidatorBase } from './variable-validator-base.abstract';
 
@@ -17,12 +15,12 @@ export abstract class VariableBase<T = any>
         return this._isDisposed;
     }
 
-    public get changeTracker(): IVariableChangeTracker<T>
+    public get changeTracker(): VariableChangeTrackerBase<T>
     {
         return this._changeTracker;
     }
 
-    public get validator(): IVariableValidator
+    public get validator(): VariableValidatorBase<T>
     {
         return this._validator;
     }

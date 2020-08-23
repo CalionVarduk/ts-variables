@@ -4,7 +4,7 @@ import { IDisposable } from 'frl-ts-utils/lib/disposable.interface';
 import { IEvent, EventHandler } from 'frl-ts-utils/lib/events';
 import { SkippableAction } from 'frl-ts-utils/lib/skippable-action';
 import { IVariableValidator } from './variable-validator.interface';
-import { IVariableValidatorState } from './variable-validator-state.interface';
+import { VariableValidatorState } from './variable-validator-state';
 import { VariableValidatedEvent } from './variable-validated-event';
 import { IVariable } from './variable.interface';
 
@@ -44,7 +44,7 @@ export abstract class VariableValidatorBase<T = any>
         return isNull(this.state.warnings) || this.state.warnings.length === 0;
     }
 
-    public abstract get state(): IVariableValidatorState;
+    public abstract get state(): VariableValidatorState;
 
     public get onValidated(): IEvent<VariableValidatedEvent>
     {
@@ -126,8 +126,8 @@ export abstract class VariableValidatorBase<T = any>
     }
 
     protected abstract validateImpl(): Promise<void>;
-    protected abstract checkValidity(value: T, args?: any): Promise<Nullable<IVariableValidatorState>>;
-    protected abstract finishValidation(value: T, result: Nullable<IVariableValidatorState>, args?: any): void;
+    protected abstract checkValidity(value: T, args?: any): Promise<Nullable<VariableValidatorState>>;
+    protected abstract finishValidation(value: T, result: Nullable<VariableValidatorState>, args?: any): void;
 
     protected publishValidated(e: VariableValidatedEvent): void
     {
