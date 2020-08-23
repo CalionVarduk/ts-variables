@@ -5,7 +5,7 @@ import { VariableValidatorBase } from '../variable-validator-base.abstract';
 import { IPrimitiveVariableValidator } from './primitive-variable-validator.interface';
 import { PrimitiveVariableValidatorState } from './primitive-variable-validator-state';
 import { IReadonlyPrimitiveVariable } from './readonly-primitive-variable.interface';
-import { PrimitiveVariableValidatorDelegate } from './primitive-variable-validator-delegate';
+import { PrimitiveVariableValidatorCallback } from './primitive-variable-validator-callback';
 import { PrimitiveVariableValueChangedEvent } from './primitive-variable-value-changed-event';
 import { VariableValidatorState } from '../variable-validator-state';
 import { PrimitiveVariableValidatedEvent } from './primitive-variable-validated-event';
@@ -14,7 +14,7 @@ export type PrimitiveVariableValidatorParams<T = any> =
 {
     readonly attach?: boolean;
     readonly validateImmediately?: boolean;
-    readonly validators?: ReadonlyArray<PrimitiveVariableValidatorDelegate<T>>;
+    readonly callbacks?: ReadonlyArray<PrimitiveVariableValidatorCallback<T>>;
 };
 
 export class PrimitiveVariableValidator<T = any>
@@ -34,7 +34,7 @@ export class PrimitiveVariableValidator<T = any>
     }
 
     private readonly _validateImmediately: boolean;
-    private readonly _validators: ReadonlyArray<PrimitiveVariableValidatorDelegate<T>>;
+    private readonly _callbacks: PrimitiveVariableValidatorCallback<T>[];
 
     private _changeListener: Nullable<IEventListener<PrimitiveVariableValueChangedEvent<T>>>;
     private _state: PrimitiveVariableValidatorState<T>;
@@ -46,7 +46,7 @@ export class PrimitiveVariableValidator<T = any>
 
         super(params.attach);
 
-        this._validators = isDefined(params.validators) ? params.validators : [];
+        this._callbacks = isDefined(params.callbacks) ? [...params.callbacks] : [];
         this._validateImmediately = isDefined(params.validateImmediately) ? params.validateImmediately : true;
         this._changeListener = null;
         this._state = PrimitiveVariableValidatorState.CreateEmpty<T>();
@@ -63,6 +63,7 @@ export class PrimitiveVariableValidator<T = any>
             this._changeListener = null;
         }
         this._state = PrimitiveVariableValidatorState.CreateEmpty<T>();
+        this._callbacks.splice(0);
         super.dispose();
     }
 
@@ -94,18 +95,18 @@ export class PrimitiveVariableValidator<T = any>
 
     protected async checkValidity(value: Nullable<DeepReadonly<T>>): Promise<VariableValidatorState>
     {
-        if (this._validators.length === 0)
+        if (this._callbacks.length === 0)
             return Promise.resolve(VariableValidatorState.CreateEmpty());
 
-        if (this._validators.length === 1)
+        if (this._callbacks.length === 1)
         {
-            const validatorResult = await Promise.resolve(this._validators[0](value));
-            return isNull(validatorResult) ?
+            const callbackResult = await Promise.resolve(this._callbacks[0](value));
+            return isNull(callbackResult) ?
                 VariableValidatorState.CreateEmpty() :
-                validatorResult;
+                callbackResult;
         }
 
-        const resultRange = await Promise.all(this._validators.map(v => Promise.resolve(v(value))));
+        const resultRange = await Promise.all(this._callbacks.map(v => Promise.resolve(v(value))));
         const errors: string[] = [];
         const warnings: string[] = [];
 

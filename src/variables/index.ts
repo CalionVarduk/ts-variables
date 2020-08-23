@@ -1,4 +1,5 @@
 export * from './primitive';
+export * from './validation';
 export * from './variable-base.abstract';
 export * from './variable-change-event';
 export * from './variable-change-tracker-base.abstract';

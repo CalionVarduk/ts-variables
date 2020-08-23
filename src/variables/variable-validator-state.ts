@@ -6,11 +6,11 @@ export class VariableValidatorState
         return new VariableValidatorState(null, null);
     }
 
-    public static CreateErrors(errors: ReadonlyArray<string>): VariableValidatorState {
+    public static CreateErrors(...errors: string[]): VariableValidatorState {
         return new VariableValidatorState(errors, null);
     }
 
-    public static CreateWarnings(warnings: ReadonlyArray<string>): VariableValidatorState {
+    public static CreateWarnings(...warnings: string[]): VariableValidatorState {
         return new VariableValidatorState(null, warnings);
     }
 
