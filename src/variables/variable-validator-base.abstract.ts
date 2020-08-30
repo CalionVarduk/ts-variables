@@ -7,6 +7,7 @@ import { IVariableValidator } from './variable-validator.interface';
 import { VariableValidatorState } from './variable-validator-state';
 import { VariableValidatedEvent } from './variable-validated-event';
 import { IVariable } from './variable.interface';
+import { VariableValidationResult } from './variable-validation-result';
 
 type VariableValidatorActionParams<T> =
 {
@@ -41,7 +42,7 @@ export abstract class VariableValidatorBase<T = any>
 
     public get hasWarnings(): boolean
     {
-        return isNull(this.state.warnings) || this.state.warnings.length === 0;
+        return !isNull(this.state.warnings) && this.state.warnings.length > 0;
     }
 
     public abstract get state(): VariableValidatorState;
@@ -126,8 +127,8 @@ export abstract class VariableValidatorBase<T = any>
     }
 
     protected abstract validateImpl(): Promise<void>;
-    protected abstract checkValidity(value: T, args?: any): Promise<Nullable<VariableValidatorState>>;
-    protected abstract finishValidation(value: T, result: Nullable<VariableValidatorState>, args?: any): void;
+    protected abstract checkValidity(value: T, args?: any): Promise<Nullable<VariableValidationResult>>;
+    protected abstract finishValidation(value: T, result: Nullable<VariableValidationResult>, args?: any): void;
 
     protected publishValidated(e: VariableValidatedEvent): void
     {

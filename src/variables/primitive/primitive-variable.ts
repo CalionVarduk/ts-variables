@@ -13,7 +13,7 @@ import { PrimitiveVariableValueChangeCancellationReason } from './primitive-vari
 
 export type PrimitiveVariableParams<T = any> =
 {
-    readonly changeTracker: PrimitiveVariableChangeTracker<T>;
+    readonly changeTracker?: PrimitiveVariableChangeTracker<T>;
     readonly validator?: PrimitiveVariableValidator<T>;
     readonly value?: Nullable<T>;
     resetMapper?(value: Nullable<DeepReadonly<T>>): Nullable<T>;
@@ -68,9 +68,14 @@ export class PrimitiveVariable<T = any>
 
     private _value: Nullable<T>;
 
-    public constructor(params: PrimitiveVariableParams<T>)
+    public constructor(params?: PrimitiveVariableParams<T>)
     {
-        super(params.changeTracker, isDefined(params.validator) ? params.validator : new PrimitiveVariableValidator<T>());
+        if (!isDefined(params))
+            params = {};
+
+        super(
+            isDefined(params.changeTracker) ? params.changeTracker : new PrimitiveVariableChangeTracker<T>(),
+            isDefined(params.validator) ? params.validator : new PrimitiveVariableValidator<T>());
 
         this._value = isDefined(params.value) ? params.value : null;
         this.resetMapper = isDefined(params.resetMapper) ? params.resetMapper : v => reinterpretCast<Nullable<T>>(v);

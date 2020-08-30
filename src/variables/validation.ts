@@ -2,9 +2,10 @@ import { Nullable, DeepReadonly, Ensured, Stringifier } from 'frl-ts-utils/lib/t
 import { isDefined, isNull, isUndefined, isInstanceOfType } from 'frl-ts-utils/lib/functions';
 import { Iteration, UnorderedSet } from 'frl-ts-utils/lib/collections';
 import { PrimitiveVariableValidatorCallback } from './primitive/primitive-variable-validator-callback';
-import { VariableValidatorState } from './variable-validator-state';
+import { VariableValidationResult } from './variable-validation-result';
+import { IReadonlyPrimitiveVariable } from './primitive/readonly-primitive-variable.interface';
 
-function combineStates(states: Iterable<VariableValidatorState>): Nullable<VariableValidatorState>
+function combineStates(states: Iterable<VariableValidationResult>): Nullable<VariableValidationResult>
 {
     const errors: string[] = [];
     const warnings: string[] = [];
@@ -21,12 +22,12 @@ function combineStates(states: Iterable<VariableValidatorState>): Nullable<Varia
     if (errors.length === 0 && warnings.length === 0)
         return null;
 
-    return new VariableValidatorState(
+    return new VariableValidationResult(
         errors.length > 0 ? errors : null,
         warnings.length > 0 ? warnings : null);
 }
 
-function concatMessages(state: VariableValidatorState): Nullable<ReadonlyArray<string>>
+function concatMessages(state: VariableValidationResult): Nullable<ReadonlyArray<string>>
 {
     const warnings: string[] = isNull(state.warnings) ? [] : [...state.warnings];
     if (!isNull(state.errors))
@@ -64,6 +65,8 @@ export namespace Validation
         export const LENGTH_BETWEEN = 'LENGTH_BETWEEN';
         export const PATTERN_NOT_MATCHED = 'PATTERN_NOT_MATCHED';
         export const PATTERN_MATCHED = 'PATTERN_MATCHED';
+        export const NOT_INTEGER = 'NOT_INTEGER';
+        export const NOT_SYNCHRONIZED = 'NOT_SYNCHRONIZED';
 
         export function Required<T = any>(): PrimitiveVariableValidatorCallback<T>
         {
@@ -72,7 +75,22 @@ export namespace Validation
                 if (isDefined(value))
                     return null;
 
-                return VariableValidatorState.CreateErrors(REQUIRED);
+                return VariableValidationResult.CreateErrors(REQUIRED);
+            };
+        }
+
+        export function Sync<T>(other: IReadonlyPrimitiveVariable<T>, syncName?: string): PrimitiveVariableValidatorCallback<T>
+        {
+            const errorMsg = isDefined(syncName) ?
+                `${syncName}_${NOT_SYNCHRONIZED}` :
+                NOT_SYNCHRONIZED;
+
+            return value =>
+            {
+                if (other.changeTracker.areEqual(value, other.value))
+                    return null;
+
+                return VariableValidationResult.CreateErrors(errorMsg);
             };
         }
 
@@ -84,8 +102,8 @@ export namespace Validation
                 if (isNull(result))
                     return null;
 
-                if (isInstanceOfType(VariableValidatorState, result))
-                    return new VariableValidatorState(
+                if (isInstanceOfType(VariableValidationResult, result))
+                    return new VariableValidationResult(
                         null,
                         concatMessages(result));
 
@@ -94,7 +112,7 @@ export namespace Validation
                         if (isNull(asyncResult))
                             return null;
 
-                        return new VariableValidatorState(
+                        return new VariableValidationResult(
                             null,
                             concatMessages(asyncResult));
                     });
@@ -109,8 +127,8 @@ export namespace Validation
                 if (isNull(result))
                     return null;
 
-                if (isInstanceOfType(VariableValidatorState, result))
-                    return new VariableValidatorState(
+                if (isInstanceOfType(VariableValidationResult, result))
+                    return new VariableValidationResult(
                         concatMessages(result),
                         null);
 
@@ -119,7 +137,7 @@ export namespace Validation
                         if (isNull(asyncResult))
                             return null;
 
-                        return new VariableValidatorState(
+                        return new VariableValidationResult(
                             concatMessages(asyncResult),
                             null);
                     });
@@ -143,13 +161,13 @@ export namespace Validation
                             d => d(value))));
 
                 const syncResultRange = Iteration.ToArray(
-                    Iteration.OfType(resultRange, VariableValidatorState));
+                    Iteration.OfType(resultRange, VariableValidationResult));
 
                 const promiseRange = Iteration.ToArray(
-                    Iteration.ReinterpretCast<Promise<Nullable<VariableValidatorState>>>(
+                    Iteration.ReinterpretCast<Promise<Nullable<VariableValidationResult>>>(
                         Iteration.Filter(
                             resultRange,
-                            r => !isInstanceOfType(VariableValidatorState, r))));
+                            r => !isInstanceOfType(VariableValidationResult, r))));
 
                 if (promiseRange.length === 0)
                 {
@@ -180,8 +198,8 @@ export namespace Validation
 
             return value =>
             {
-                const invalidStateRange: VariableValidatorState[] = [];
-                const promiseRange: Promise<Nullable<VariableValidatorState>>[] = [];
+                const invalidStateRange: VariableValidationResult[] = [];
+                const promiseRange: Promise<Nullable<VariableValidationResult>>[] = [];
 
                 for (const d of delegates)
                 {
@@ -189,7 +207,7 @@ export namespace Validation
                     if (isNull(result))
                         return null;
 
-                    if (isInstanceOfType(VariableValidatorState, result))
+                    if (isInstanceOfType(VariableValidationResult, result))
                     {
                         if ((isNull(result.errors) || result.errors.length === 0) &&
                             (isNull(result.warnings) || result.warnings.length === 0))
@@ -228,7 +246,7 @@ export namespace Validation
 
         export function Not<T>(
             delegate: PrimitiveVariableValidatorCallback<T>,
-            stateFactory: () => VariableValidatorState):
+            stateFactory: () => VariableValidationResult):
             PrimitiveVariableValidatorCallback<T>
         {
             return value =>
@@ -237,7 +255,7 @@ export namespace Validation
                 if (isNull(result))
                     return stateFactory();
 
-                if (isInstanceOfType(VariableValidatorState, result))
+                if (isInstanceOfType(VariableValidationResult, result))
                 {
                     if ((isNull(result.errors) || result.errors.length === 0) &&
                         (isNull(result.warnings) || result.warnings.length === 0))
@@ -269,7 +287,7 @@ export namespace Validation
                         if (isNull(value))
                             return null;
 
-                        return VariableValidatorState.CreateErrors(NOT_EQUAL_TO_NULL);
+                        return VariableValidationResult.CreateErrors(NOT_EQUAL_TO_NULL);
                     };
                 }
 
@@ -279,7 +297,7 @@ export namespace Validation
                     if (isNull(value) || obj === value)
                         return null;
 
-                    return VariableValidatorState.CreateErrors(errorMsg);
+                    return VariableValidationResult.CreateErrors(errorMsg);
                 };
             }
 
@@ -290,7 +308,7 @@ export namespace Validation
                     return value =>
                     {
                         if (isNull(value))
-                            return VariableValidatorState.CreateErrors(EQUAL_TO_NULL);
+                            return VariableValidationResult.CreateErrors(EQUAL_TO_NULL);
 
                         return null;
                     };
@@ -302,7 +320,7 @@ export namespace Validation
                     if (isNull(value) || obj !== value)
                         return null;
 
-                    return VariableValidatorState.CreateErrors(errorMsg);
+                    return VariableValidationResult.CreateErrors(errorMsg);
                 };
             }
 
@@ -315,7 +333,7 @@ export namespace Validation
                     if (isNull(value) || value > obj)
                         return null;
 
-                    return VariableValidatorState.CreateErrors(errorMsg);
+                    return VariableValidationResult.CreateErrors(errorMsg);
                 };
             }
 
@@ -328,7 +346,7 @@ export namespace Validation
                     if (isNull(value) || value < obj)
                         return null;
 
-                    return VariableValidatorState.CreateErrors(errorMsg);
+                    return VariableValidationResult.CreateErrors(errorMsg);
                 };
             }
 
@@ -341,7 +359,7 @@ export namespace Validation
                     if (isNull(value) || value >= obj)
                         return null;
 
-                    return VariableValidatorState.CreateErrors(errorMsg);
+                    return VariableValidationResult.CreateErrors(errorMsg);
                 };
             }
 
@@ -354,7 +372,7 @@ export namespace Validation
                     if (isNull(value) || value <= obj)
                         return null;
 
-                    return VariableValidatorState.CreateErrors(errorMsg);
+                    return VariableValidationResult.CreateErrors(errorMsg);
                 };
             }
 
@@ -367,7 +385,7 @@ export namespace Validation
                     if (isNull(value) || (value >= min && value <= max))
                         return null;
 
-                    return VariableValidatorState.CreateErrors(errorMsg);
+                    return VariableValidationResult.CreateErrors(errorMsg);
                 };
             }
 
@@ -380,7 +398,7 @@ export namespace Validation
                     if (isNull(value) || value < min || value > max)
                         return null;
 
-                    return VariableValidatorState.CreateErrors(errorMsg);
+                    return VariableValidationResult.CreateErrors(errorMsg);
                 };
             }
 
@@ -397,7 +415,7 @@ export namespace Validation
                     if (isNull(value) || test.has(value))
                         return null;
 
-                    return VariableValidatorState.CreateErrors(errorMsg);
+                    return VariableValidationResult.CreateErrors(errorMsg);
                 };
             }
 
@@ -414,7 +432,18 @@ export namespace Validation
                     if (isNull(value) || !test.has(value))
                         return null;
 
-                    return VariableValidatorState.CreateErrors(errorMsg);
+                    return VariableValidationResult.CreateErrors(errorMsg);
+                };
+            }
+
+            export function Integer(): PrimitiveVariableValidatorCallback<number>
+            {
+                return value =>
+                {
+                    if (isNull(value) || Math.trunc(value) === value)
+                        return null;
+
+                    return VariableValidationResult.CreateErrors(NOT_INTEGER);
                 };
             }
         }
@@ -430,7 +459,7 @@ export namespace Validation
                         if (isNull(value))
                             return null;
 
-                        return VariableValidatorState.CreateErrors(NOT_EQUAL_TO_NULL);
+                        return VariableValidationResult.CreateErrors(NOT_EQUAL_TO_NULL);
                     };
                 }
 
@@ -440,7 +469,7 @@ export namespace Validation
                     if (isNull(value) || obj === value)
                         return null;
 
-                    return VariableValidatorState.CreateErrors(errorMsg);
+                    return VariableValidationResult.CreateErrors(errorMsg);
                 };
             }
 
@@ -451,7 +480,7 @@ export namespace Validation
                     return value =>
                     {
                         if (isNull(value))
-                            return VariableValidatorState.CreateErrors(EQUAL_TO_NULL);
+                            return VariableValidationResult.CreateErrors(EQUAL_TO_NULL);
 
                         return null;
                     };
@@ -463,7 +492,7 @@ export namespace Validation
                     if (isNull(value) || obj !== value)
                         return null;
 
-                    return VariableValidatorState.CreateErrors(errorMsg);
+                    return VariableValidationResult.CreateErrors(errorMsg);
                 };
             }
 
@@ -480,7 +509,7 @@ export namespace Validation
                     if (isNull(value) || test.has(value))
                         return null;
 
-                    return VariableValidatorState.CreateErrors(errorMsg);
+                    return VariableValidationResult.CreateErrors(errorMsg);
                 };
             }
 
@@ -497,7 +526,7 @@ export namespace Validation
                     if (isNull(value) || !test.has(value))
                         return null;
 
-                    return VariableValidatorState.CreateErrors(errorMsg);
+                    return VariableValidationResult.CreateErrors(errorMsg);
                 };
             }
 
@@ -508,7 +537,7 @@ export namespace Validation
                     if (isNull(value) || value.length === 0)
                         return null;
 
-                    return VariableValidatorState.CreateErrors(NOT_EMPTY);
+                    return VariableValidationResult.CreateErrors(NOT_EMPTY);
                 };
             }
 
@@ -519,7 +548,7 @@ export namespace Validation
                     if (isNull(value) || value.length > 0)
                         return null;
 
-                    return VariableValidatorState.CreateErrors(EMPTY);
+                    return VariableValidationResult.CreateErrors(EMPTY);
                 };
             }
 
@@ -532,7 +561,7 @@ export namespace Validation
                     if (isNull(value) || value.length >= length)
                         return null;
 
-                    return VariableValidatorState.CreateErrors(errorMsg);
+                    return VariableValidationResult.CreateErrors(errorMsg);
                 };
             }
 
@@ -545,7 +574,7 @@ export namespace Validation
                     if (isNull(value) || value.length <= length)
                         return null;
 
-                    return VariableValidatorState.CreateErrors(errorMsg);
+                    return VariableValidationResult.CreateErrors(errorMsg);
                 };
             }
 
@@ -558,7 +587,7 @@ export namespace Validation
                     if (isNull(value) || (value.length >= minLength && value.length <= maxLength))
                         return null;
 
-                    return VariableValidatorState.CreateErrors(errorMsg);
+                    return VariableValidationResult.CreateErrors(errorMsg);
                 };
             }
 
@@ -571,7 +600,7 @@ export namespace Validation
                     if (isNull(value) || value.length < minLength || value.length > maxLength)
                         return null;
 
-                    return VariableValidatorState.CreateErrors(errorMsg);
+                    return VariableValidationResult.CreateErrors(errorMsg);
                 };
             }
 
@@ -590,7 +619,7 @@ export namespace Validation
                     if (isDefined(matchResult) && matchResult.length > 0)
                         return null;
 
-                    return VariableValidatorState.CreateErrors(errorMsg);
+                    return VariableValidationResult.CreateErrors(errorMsg);
                 };
             }
 
@@ -607,7 +636,7 @@ export namespace Validation
 
                     const matchResult = value.match(regexp);
                     if (isDefined(matchResult) && matchResult.length > 0)
-                        return VariableValidatorState.CreateErrors(errorMsg);
+                        return VariableValidationResult.CreateErrors(errorMsg);
 
                     return null;
                 };
@@ -625,7 +654,7 @@ export namespace Validation
                         if (isNull(value))
                             return null;
 
-                        return VariableValidatorState.CreateErrors(NOT_EQUAL_TO_NULL);
+                        return VariableValidationResult.CreateErrors(NOT_EQUAL_TO_NULL);
                     };
                 }
 
@@ -635,7 +664,7 @@ export namespace Validation
                     if (isNull(value) || obj === value)
                         return null;
 
-                    return VariableValidatorState.CreateErrors(errorMsg);
+                    return VariableValidationResult.CreateErrors(errorMsg);
                 };
             }
 
@@ -646,7 +675,7 @@ export namespace Validation
                     return value =>
                     {
                         if (isNull(value))
-                            return VariableValidatorState.CreateErrors(EQUAL_TO_NULL);
+                            return VariableValidationResult.CreateErrors(EQUAL_TO_NULL);
 
                         return null;
                     };
@@ -658,7 +687,7 @@ export namespace Validation
                     if (isNull(value) || obj !== value)
                         return null;
 
-                    return VariableValidatorState.CreateErrors(errorMsg);
+                    return VariableValidationResult.CreateErrors(errorMsg);
                 };
             }
         }
@@ -674,7 +703,7 @@ export namespace Validation
                         if (isNull(value))
                             return null;
 
-                        return VariableValidatorState.CreateErrors(NOT_EQUAL_TO_NULL);
+                        return VariableValidationResult.CreateErrors(NOT_EQUAL_TO_NULL);
                     };
                 }
 
@@ -685,7 +714,7 @@ export namespace Validation
                     if (isNull(value) || objValueOf === value.valueOf())
                         return null;
 
-                    return VariableValidatorState.CreateErrors(errorMsg);
+                    return VariableValidationResult.CreateErrors(errorMsg);
                 };
             }
 
@@ -696,7 +725,7 @@ export namespace Validation
                     return value =>
                     {
                         if (isNull(value))
-                            return VariableValidatorState.CreateErrors(EQUAL_TO_NULL);
+                            return VariableValidationResult.CreateErrors(EQUAL_TO_NULL);
 
                         return null;
                     };
@@ -709,7 +738,7 @@ export namespace Validation
                     if (isNull(value) || objValueOf !== value.valueOf())
                         return null;
 
-                    return VariableValidatorState.CreateErrors(errorMsg);
+                    return VariableValidationResult.CreateErrors(errorMsg);
                 };
             }
 
@@ -723,7 +752,7 @@ export namespace Validation
                     if (isNull(value) || value.valueOf() > objValueOf)
                         return null;
 
-                    return VariableValidatorState.CreateErrors(errorMsg);
+                    return VariableValidationResult.CreateErrors(errorMsg);
                 };
             }
 
@@ -737,7 +766,7 @@ export namespace Validation
                     if (isNull(value) || value.valueOf() < objValueOf)
                         return null;
 
-                    return VariableValidatorState.CreateErrors(errorMsg);
+                    return VariableValidationResult.CreateErrors(errorMsg);
                 };
             }
 
@@ -751,7 +780,7 @@ export namespace Validation
                     if (isNull(value) || value.valueOf() >= objValueOf)
                         return null;
 
-                    return VariableValidatorState.CreateErrors(errorMsg);
+                    return VariableValidationResult.CreateErrors(errorMsg);
                 };
             }
 
@@ -765,7 +794,7 @@ export namespace Validation
                     if (isNull(value) || value.valueOf() <= objValueOf)
                         return null;
 
-                    return VariableValidatorState.CreateErrors(errorMsg);
+                    return VariableValidationResult.CreateErrors(errorMsg);
                 };
             }
 
@@ -784,7 +813,7 @@ export namespace Validation
                     if (valueOf >= minValueOf && valueOf <= maxValueOf)
                         return null;
 
-                    return VariableValidatorState.CreateErrors(errorMsg);
+                    return VariableValidationResult.CreateErrors(errorMsg);
                 };
             }
 
@@ -803,7 +832,7 @@ export namespace Validation
                     if (valueOf < minValueOf || valueOf > maxValueOf)
                         return null;
 
-                    return VariableValidatorState.CreateErrors(errorMsg);
+                    return VariableValidationResult.CreateErrors(errorMsg);
                 };
             }
 
@@ -820,7 +849,7 @@ export namespace Validation
                     if (isNull(value) || test.has(value.valueOf()))
                         return null;
 
-                    return VariableValidatorState.CreateErrors(errorMsg);
+                    return VariableValidationResult.CreateErrors(errorMsg);
                 };
             }
 
@@ -837,7 +866,7 @@ export namespace Validation
                     if (isNull(value) || !test.has(value.valueOf()))
                         return null;
 
-                    return VariableValidatorState.CreateErrors(errorMsg);
+                    return VariableValidationResult.CreateErrors(errorMsg);
                 };
             }
         }
@@ -862,7 +891,7 @@ export namespace Validation
                         if (isNull(value))
                             return null;
 
-                        return VariableValidatorState.CreateErrors(NOT_EQUAL_TO_NULL);
+                        return VariableValidationResult.CreateErrors(NOT_EQUAL_TO_NULL);
                     };
                 }
                 if (isUndefined(obj))
@@ -872,7 +901,7 @@ export namespace Validation
                         if (isUndefined(value))
                             return null;
 
-                        return VariableValidatorState.CreateErrors(NOT_EQUAL_TO_UNDEFINED);
+                        return VariableValidationResult.CreateErrors(NOT_EQUAL_TO_UNDEFINED);
                     };
                 }
                 const errorMsg =
@@ -886,7 +915,7 @@ export namespace Validation
                         if (isNull(value) || obj === value || (isDefined(value) && comparer(obj!, value!)))
                             return null;
 
-                        return VariableValidatorState.CreateErrors(errorMsg);
+                        return VariableValidationResult.CreateErrors(errorMsg);
                     };
                 }
                 return value =>
@@ -894,7 +923,7 @@ export namespace Validation
                     if (obj === value)
                         return null;
 
-                    return VariableValidatorState.CreateErrors(errorMsg);
+                    return VariableValidationResult.CreateErrors(errorMsg);
                 };
             }
 
@@ -914,7 +943,7 @@ export namespace Validation
                     return value =>
                     {
                         if (isNull(value))
-                            return VariableValidatorState.CreateErrors(EQUAL_TO_NULL);
+                            return VariableValidationResult.CreateErrors(EQUAL_TO_NULL);
 
                         return null;
                     };
@@ -924,7 +953,7 @@ export namespace Validation
                     return value =>
                     {
                         if (isUndefined(value))
-                            return VariableValidatorState.CreateErrors(EQUAL_TO_UNDEFINED);
+                            return VariableValidationResult.CreateErrors(EQUAL_TO_UNDEFINED);
 
                         return null;
                     };
@@ -937,7 +966,7 @@ export namespace Validation
                     return value =>
                     {
                         if (obj === value || (isDefined(value) && comparer(obj!, value!)))
-                            return VariableValidatorState.CreateErrors(errorMsg);
+                            return VariableValidationResult.CreateErrors(errorMsg);
 
                         return null;
                     };
@@ -945,7 +974,7 @@ export namespace Validation
                 return value =>
                 {
                     if (obj === value)
-                        return VariableValidatorState.CreateErrors(errorMsg);
+                        return VariableValidationResult.CreateErrors(errorMsg);
 
                     return null;
                 };
@@ -974,7 +1003,7 @@ export namespace Validation
                     if (isNull(value) || test.has(value))
                         return null;
 
-                    return VariableValidatorState.CreateErrors(errorMsg);
+                    return VariableValidationResult.CreateErrors(errorMsg);
                 };
             }
 
@@ -1001,7 +1030,7 @@ export namespace Validation
                     if (isNull(value) || !test.has(value))
                         return null;
 
-                    return VariableValidatorState.CreateErrors(errorMsg);
+                    return VariableValidationResult.CreateErrors(errorMsg);
                 };
             }
         }

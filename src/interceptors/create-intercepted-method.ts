@@ -1,4 +1,4 @@
-import { MethodKeyOf, ExtractDelegate, Undefinable } from 'frl-ts-utils/lib/types';
+import { MethodKeyOf, ExtractDelegate } from 'frl-ts-utils/lib/types';
 import { Assert, isDefined, isPrimitiveOfType, reinterpretCast } from 'frl-ts-utils/lib/functions';
 import { FunctionInterceptionParams, createInterceptedFunction } from './create-intercepted-function';
 import { UpdateRef } from '../update-ref';

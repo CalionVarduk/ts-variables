@@ -1,25 +1,9 @@
 import { Nullable } from 'frl-ts-utils/lib/types';
 
-export class VariableValidatorState
+export abstract class VariableValidatorState
 {
-    public static CreateEmpty(): VariableValidatorState {
-        return new VariableValidatorState(null, null);
-    }
+    public abstract get errors(): Nullable<ReadonlyArray<string>>;
+    public abstract get warnings(): Nullable<ReadonlyArray<string>>;
 
-    public static CreateErrors(...errors: string[]): VariableValidatorState {
-        return new VariableValidatorState(errors, null);
-    }
-
-    public static CreateWarnings(...warnings: string[]): VariableValidatorState {
-        return new VariableValidatorState(null, warnings);
-    }
-
-    public readonly errors: Nullable<ReadonlyArray<string>>;
-    public readonly warnings: Nullable<ReadonlyArray<string>>;
-
-    public constructor(errors: Nullable<ReadonlyArray<string>>, warnings: Nullable<ReadonlyArray<string>>)
-    {
-        this.errors = errors;
-        this.warnings = warnings;
-    }
+    protected constructor() {}
 }
