@@ -1,18 +1,23 @@
-import { Nullable } from 'frl-ts-utils/lib/types';
+import { Nullable, Undefinable } from 'frl-ts-utils/lib/types';
 import { isDefined, Assert, isNull } from 'frl-ts-utils/lib/functions';
 import { IDisposable } from 'frl-ts-utils/lib/disposable.interface';
 import { IEvent, EventHandler } from 'frl-ts-utils/lib/events';
-import { SkippableAction } from 'frl-ts-utils/lib/skippable-action';
 import { IVariableValidator } from './variable-validator.interface';
 import { VariableValidatorState } from './variable-validator-state';
 import { VariableValidatedEvent } from './variable-validated-event';
 import { IVariable } from './variable.interface';
 import { VariableValidationResult } from './variable-validation-result';
+import { VariableValidationAction } from './variable-validation-action.abstract';
+import { VariableValidationAsyncAction, VariableValidationAsyncActionParams } from './variable-validation-async-action.abstract';
+import { VariableValidationParams } from './variable-validation-params';
+import { VariableValidatorFinishMode } from './variable-validator-finish-mode.enum';
 
-type VariableValidatorActionParams<T> =
+export type VariableValidatorBaseParams<T = any> =
 {
-    readonly value: T;
-    readonly args?: any;
+    readonly attach?: boolean;
+    readonly alwaysFinishSyncValidation?: boolean;
+    readonly validationAction?: Nullable<VariableValidationAction<T>>;
+    readonly asyncValidationAction?: Nullable<VariableValidationAsyncAction<T>>;
 };
 
 export abstract class VariableValidatorBase<T = any>
@@ -27,7 +32,12 @@ export abstract class VariableValidatorBase<T = any>
 
     public get isBusy(): boolean
     {
-        return this._asyncValidator.isInvoking;
+        return this.isAsync && this.asyncValidationAction!.isBusy;
+    }
+
+    public get isAsync(): boolean
+    {
+        return !isNull(this.asyncValidationAction);
     }
 
     public get isAttached(): boolean
@@ -45,6 +55,11 @@ export abstract class VariableValidatorBase<T = any>
         return !isNull(this.state.warnings) && this.state.warnings.length > 0;
     }
 
+    public get isAlwaysFinishingSyncValidation(): boolean
+    {
+        return this._isAlwaysFinishingSyncValidation;
+    }
+
     public abstract get state(): VariableValidatorState;
 
     public get onValidated(): IEvent<VariableValidatedEvent>
@@ -57,24 +72,26 @@ export abstract class VariableValidatorBase<T = any>
         return this._linkedVariable;
     }
 
+    protected readonly validationAction: Nullable<VariableValidationAction<T>>;
+    protected readonly asyncValidationAction: Nullable<VariableValidationAsyncAction<T>>;
+
     private readonly _onValidated: EventHandler<VariableValidatedEvent>;
-    private readonly _asyncValidator: SkippableAction<VariableValidatorActionParams<T>>;
+    private readonly _isAlwaysFinishingSyncValidation: boolean;
 
     private _linkedVariable: Nullable<IVariable<T>>;
     private _isAttached: boolean;
 
-    protected constructor(attach?: boolean)
+    protected constructor(params?: VariableValidatorBaseParams<T>)
     {
-        this._onValidated = new EventHandler<VariableValidatedEvent>();
-        this._asyncValidator = new SkippableAction<VariableValidatorActionParams<T>>(async params =>
-            {
-                const result = await this.checkValidity(params!.value, params!.args);
-                if (!this.isDisposed)
-                    this.finishValidation(params!.value, result, params!.args);
-            });
+        if (!isDefined(params))
+            params = {};
 
+        this._onValidated = new EventHandler<VariableValidatedEvent>();
         this._linkedVariable = null;
-        this._isAttached = isDefined(attach) ? attach : true;
+        this._isAttached = isDefined(params.attach) ? params.attach : true;
+        this._isAlwaysFinishingSyncValidation = isDefined(params.alwaysFinishSyncValidation) ? params.alwaysFinishSyncValidation : true;
+        this.validationAction = isDefined(params.validationAction) ? params.validationAction : null;
+        this.asyncValidationAction = isDefined(params.asyncValidationAction) ? params.asyncValidationAction : null;
     }
 
     public dispose(): void
@@ -82,6 +99,12 @@ export abstract class VariableValidatorBase<T = any>
         this._linkedVariable = null;
         this._isAttached = false;
         this._onValidated.dispose();
+
+        if (!isNull(this.validationAction))
+            this.validationAction.dispose();
+
+        if (!isNull(this.asyncValidationAction))
+            this.asyncValidationAction.dispose();
     }
 
     public configure(linkedVariable: IVariable<T>): void
@@ -107,28 +130,57 @@ export abstract class VariableValidatorBase<T = any>
         this.validate();
     }
 
-    public validate(): Promise<void>
+    public validate(): Undefinable<Promise<void>>
     {
         Assert.False(this.isDisposed, 'validator has been disposed');
         Assert.False(isNull(this._linkedVariable), 'validator hasn\'t been configured');
-        return this.validateImpl();
+
+        const params = this.startDetachedValidation();
+        return this.beginValidation(params.value, params.args);
     }
 
-    protected async beginValidation(value: T, args?: any): Promise<void>
+    protected beginValidation(value: T, args?: any): Undefinable<Promise<void>>
     {
-        const params: VariableValidatorActionParams<T> = {
-            value: value,
-            args: args
-        };
+        const syncResult = isNull(this.validationAction) ? null : this.validationAction.invoke(value);
 
-        await (this.isBusy ?
-            this._asyncValidator.invoke(params).then(() => this._asyncValidator.current()!) :
-            this._asyncValidator.invoke(params));
+        if (this.isAsync)
+        {
+            if (this.isAlwaysFinishingSyncValidation)
+                this.finishValidation(syncResult, VariableValidatorFinishMode.SyncBeforeAsync, value, args);
+
+            const params: VariableValidationAsyncActionParams<T> = {
+                value: value,
+                args: args,
+                onEnd: (asyncResult, v, a) =>
+                {
+                    if (!this.isDisposed)
+                    {
+                        if (isNull(syncResult))
+                            this.finishValidation(asyncResult, VariableValidatorFinishMode.AsyncAfterSync, v, a);
+                        else if (isNull(asyncResult))
+                            this.finishValidation(syncResult, VariableValidatorFinishMode.AsyncAfterSync, v, a);
+                        else
+                        {
+                            const fullResult = VariableValidationResult.Combine([syncResult, asyncResult]);
+                            this.finishValidation(fullResult, VariableValidatorFinishMode.AsyncAfterSync, v, a);
+                        }
+                    }
+                }
+            };
+            return this.asyncValidationAction!.begin(params);
+        }
+
+        this.finishValidation(syncResult, VariableValidatorFinishMode.Sync, value, args);
+        return void(0);
     }
 
-    protected abstract validateImpl(): Promise<void>;
-    protected abstract checkValidity(value: T, args?: any): Promise<Nullable<VariableValidationResult>>;
-    protected abstract finishValidation(value: T, result: Nullable<VariableValidationResult>, args?: any): void;
+    protected abstract startDetachedValidation(): VariableValidationParams<T>;
+    protected abstract finishValidation(
+        result: Nullable<VariableValidationResult>,
+        mode: VariableValidatorFinishMode,
+        value: T,
+        args?: any):
+        void;
 
     protected publishValidated(e: VariableValidatedEvent): void
     {

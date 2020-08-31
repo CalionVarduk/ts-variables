@@ -9,12 +9,20 @@ import { PrimitiveVariableValidatorCallback } from './primitive-variable-validat
 import { PrimitiveVariableValueChangedEvent } from './primitive-variable-value-changed-event';
 import { PrimitiveVariableValidatedEvent } from './primitive-variable-validated-event';
 import { VariableValidationResult } from '../variable-validation-result';
+import { PrimitiveVariableValidatorAsyncCallback } from './primitive-variable-validator-async-callback';
+import { VariableValidationParams } from '../variable-validation-params';
+import { PrimitiveVariableValidationAction } from './primitive-variable-validation-action';
+import { Iteration } from 'frl-ts-utils/lib/collections';
+import { PrimitiveVariableValidationAsyncAction } from './primitive-variable-validation-async-action';
+import { VariableValidatorFinishMode } from '../variable-validator-finish-mode.enum';
 
 export type PrimitiveVariableValidatorParams<T = any> =
 {
     readonly attach?: boolean;
+    readonly alwaysFinishSyncValidation?: boolean;
     readonly validateImmediately?: boolean;
     readonly callbacks?: Iterable<PrimitiveVariableValidatorCallback<T>>;
+    readonly asyncCallbacks?: Iterable<PrimitiveVariableValidatorAsyncCallback<T>>;
 };
 
 export class PrimitiveVariableValidator<T = any>
@@ -34,7 +42,6 @@ export class PrimitiveVariableValidator<T = any>
     }
 
     private readonly _validateImmediately: boolean;
-    private readonly _callbacks: PrimitiveVariableValidatorCallback<T>[];
 
     private _changeListener: Nullable<IEventListener<PrimitiveVariableValueChangedEvent<T>>>;
     private _state: PrimitiveVariableValidatorState<T>;
@@ -44,9 +51,16 @@ export class PrimitiveVariableValidator<T = any>
         if (!isDefined(params))
             params = {};
 
-        super(params.attach);
+        const callbacks = isDefined(params.callbacks) ? Iteration.ToArray(params.callbacks) : [];
+        const asyncCallbacks = isDefined(params.asyncCallbacks) ? Iteration.ToArray(params.asyncCallbacks) : [];
 
-        this._callbacks = isDefined(params.callbacks) ? [...params.callbacks] : [];
+        super({
+            attach: params.attach,
+            alwaysFinishSyncValidation: params.alwaysFinishSyncValidation,
+            validationAction: callbacks.length > 0 ? new PrimitiveVariableValidationAction<T>(callbacks) : null,
+            asyncValidationAction: asyncCallbacks.length > 0 ? new PrimitiveVariableValidationAsyncAction<T>(asyncCallbacks) : null
+        });
+
         this._validateImmediately = isDefined(params.validateImmediately) ? params.validateImmediately : true;
         this._changeListener = null;
         this._state = PrimitiveVariableValidatorState.CreateEmpty<T>();
@@ -63,7 +77,6 @@ export class PrimitiveVariableValidator<T = any>
             this._changeListener = null;
         }
         this._state = PrimitiveVariableValidatorState.CreateEmpty<T>();
-        this._callbacks.splice(0);
         super.dispose();
     }
 
@@ -86,51 +99,25 @@ export class PrimitiveVariableValidator<T = any>
         });
     }
 
-    protected validateImpl(): Promise<void>
+    protected startDetachedValidation(): VariableValidationParams<Nullable<DeepReadonly<T>>>
     {
         const currentValue = this.linkedVariable!.value;
-        return this.beginValidation(currentValue);
-    }
-
-    protected async checkValidity(value: Nullable<DeepReadonly<T>>): Promise<VariableValidationResult>
-    {
-        if (this._callbacks.length === 0)
-            return Promise.resolve(VariableValidationResult.CreateEmpty());
-
-        if (this._callbacks.length === 1)
-        {
-            const callbackResult = await Promise.resolve(this._callbacks[0](value));
-            return isNull(callbackResult) ?
-                VariableValidationResult.CreateEmpty() :
-                callbackResult;
-        }
-
-        const resultRange = await Promise.all(this._callbacks.map(v => Promise.resolve(v(value))));
-        const errors: string[] = [];
-        const warnings: string[] = [];
-
-        resultRange.forEach(state =>
-            {
-                if (isNull(state))
-                    return;
-
-                if (!isNull(state.errors))
-                    errors.push(...state.errors);
-
-                if (!isNull(state.warnings))
-                    warnings.push(...state.warnings);
-            });
-
-        const result = new VariableValidationResult(
-            errors.length > 0 ? errors : null,
-            warnings.length > 0 ? warnings : null);
-
+        const result: VariableValidationParams<Nullable<DeepReadonly<T>>> = {
+            value: currentValue,
+            args: null
+        };
         return result;
     }
 
-    protected finishValidation(value: Nullable<DeepReadonly<T>>, result: VariableValidationResult): void
+    protected finishValidation(
+        result: Nullable<VariableValidationResult>,
+        _0: VariableValidatorFinishMode,
+        value: Nullable<DeepReadonly<T>>): void
     {
-        this._state = PrimitiveVariableValidatorState.CreateFromResult(value, result);
+        this._state = isNull(result) ?
+            PrimitiveVariableValidatorState.CreateValid(value) :
+            PrimitiveVariableValidatorState.CreateFromResult(value, result);
+
         const event = new PrimitiveVariableValidatedEvent<T>(
             this.isValid,
             this.hasWarnings,

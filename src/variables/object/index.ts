@@ -10,6 +10,8 @@ export * from './object-variable-property-validated-event';
 export * from './object-variable-property-validator-state';
 export * from './object-variable-reset-event';
 export * from './object-variable-validated-event';
+export * from './object-variable-validation-action';
+export * from './object-variable-validation-async-action';
 export * from './object-variable-validator';
 export * from './object-variable-validator-state.abstract';
 export * from './object-variable-validator.interface';

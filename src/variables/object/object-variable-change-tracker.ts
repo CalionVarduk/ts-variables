@@ -117,14 +117,15 @@ export class ObjectVariableChangeTracker
         // this would require some try ... finally ... approach (and probably an additional event, like onResetFailure)
         // also, what if object reset is being called recursively...?
         // it would probably be safer if the variable itself would have an isResetting boolean property
-        this._resetListener = linkedVariable.onReset.listen((_, e) =>
-            {
-                if (!this.isAttached)
-                    return;
+        // for now, simply ignore it
+        // this._resetListener = linkedVariable.onReset.listen((_, e) =>
+        //     {
+        //         if (!this.isAttached)
+        //             return;
 
-                const changes = this._updateChanges(e!.currentValue);
-                this._publishObjectChange(changes, e!);
-            });
+        //         const changes = this._updateChanges(e!.currentValue);
+        //         this._publishObjectChange(changes, e!);
+        //     });
 
         for (const property of this._properties)
         {

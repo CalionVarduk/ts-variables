@@ -11,6 +11,11 @@ export class PrimitiveVariableValidatorState<T = any>
         return new PrimitiveVariableValidatorState<U>(null, null, null);
     }
 
+    public static CreateValid<U>(currentValue: Nullable<DeepReadonly<U>>): PrimitiveVariableValidatorState<U>
+    {
+        return new PrimitiveVariableValidatorState<U>(currentValue, null, null);
+    }
+
     public static CreateFromResult<U>(
         currentValue: Nullable<DeepReadonly<U>>,
         result: VariableValidationResult):

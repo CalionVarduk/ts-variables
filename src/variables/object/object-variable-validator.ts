@@ -11,6 +11,10 @@ import { IVariable } from '../variable.interface';
 import { ObjectVariablePropertyValidatorState } from './object-variable-property-validator-state';
 import { ObjectVariablePropertyValidatedEvent } from './object-variable-property-validated-event';
 import { ObjectVariableValidatedEvent } from './object-variable-validated-event';
+import { ObjectVariableValidationAction } from './object-variable-validation-action';
+import { VariableValidatorFinishMode } from '../variable-validator-finish-mode.enum';
+import { VariableValidationParams } from '../variable-validation-params';
+import { ObjectVariableValidationAsyncAction } from './object-variable-validation-async-action';
 
 class MutableObjectVariableValidatorState
     extends
@@ -24,7 +28,7 @@ class MutableObjectVariableValidatorState
         return Iteration.ToArray(
             Iteration.MapMany(
                 this.invalidProperties.values(),
-                p => p.state.errors!.map(e => `${p.name}: ${e}`)));
+                p => p.state.errors!.map(e => `${p.name} :: ${e}`)));
     }
 
     public get warnings(): Nullable<ReadonlyArray<string>>
@@ -35,7 +39,7 @@ class MutableObjectVariableValidatorState
         return Iteration.ToArray(
             Iteration.MapMany(
                 this.propertiesWithWarnings.values(),
-                p => p.state.warnings!.map(e => `${p.name}: ${e}`)));
+                p => p.state.warnings!.map(e => `${p.name} :: ${e}`)));
     }
 
     public currentValue: ObjectVariableValue;
@@ -54,6 +58,7 @@ class MutableObjectVariableValidatorState
 export type ObjectVariableValidatorParams =
 {
     readonly attach?: boolean;
+    readonly alwaysFinishSyncValidation?: boolean;
 };
 
 export class ObjectVariableValidator
@@ -65,6 +70,11 @@ export class ObjectVariableValidator
     public get state(): ObjectVariableValidatorState
     {
         return this._state;
+    }
+
+    public get isAsync(): boolean
+    {
+        return reinterpretCast<ObjectVariableValidationAsyncAction>(this.asyncValidationAction).variables.length > 0;
     }
 
     public get isValid(): boolean
@@ -92,7 +102,12 @@ export class ObjectVariableValidator
         if (!isDefined(params))
             params = {};
 
-        super(params.attach);
+        super({
+            attach: params.attach,
+            alwaysFinishSyncValidation: params.alwaysFinishSyncValidation,
+            validationAction: new ObjectVariableValidationAction(),
+            asyncValidationAction: new ObjectVariableValidationAsyncAction()
+        });
 
         this._propertyListeners = [];
         this._properties = null;
@@ -120,6 +135,13 @@ export class ObjectVariableValidator
         super.configure(linkedVariable);
 
         this._properties = linkedVariable.getTrackedProperties();
+
+        const validationAction = reinterpretCast<ObjectVariableValidationAction>(this.validationAction);
+        validationAction.configure(this._properties);
+
+        const asyncValidationAction = reinterpretCast<ObjectVariableValidationAsyncAction>(this.asyncValidationAction);
+        asyncValidationAction.configure(this._properties);
+
         this._updateState(linkedVariable.value);
 
         // TODO: hm, leave optimizations for now
@@ -203,19 +225,17 @@ export class ObjectVariableValidator
             k => makeMapEntry(k, this._properties!.get(k)));
     }
 
-    protected validateImpl(): Promise<void>
+    protected startDetachedValidation(): VariableValidationParams<ObjectVariableValue>
     {
         this._updateState(this.linkedVariable!.value);
-        return this.beginValidation(this.linkedVariable!.value, null);
+        const result: VariableValidationParams<ObjectVariableValue> = {
+            value: this.linkedVariable!.value,
+            args: null
+        };
+        return result;
     }
 
-    protected async checkValidity(): Promise<null>
-    {
-        await Promise.all(Iteration.Map(this._properties!.values(), p => p.validator.validate()));
-        return null;
-    }
-
-    protected finishValidation(value: ObjectVariableValue, _result: null, args?: any): void
+    protected finishValidation(_0: null, _1: VariableValidatorFinishMode, value: ObjectVariableValue, args?: any): void
     {
         this._state.currentValue = value;
         const event = new ObjectVariableValidatedEvent(

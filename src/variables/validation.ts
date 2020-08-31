@@ -1,39 +1,18 @@
 import { Nullable, DeepReadonly, Ensured, Stringifier } from 'frl-ts-utils/lib/types';
-import { isDefined, isNull, isUndefined, isInstanceOfType } from 'frl-ts-utils/lib/functions';
+import { isDefined, isNull, isUndefined } from 'frl-ts-utils/lib/functions';
 import { Iteration, UnorderedSet } from 'frl-ts-utils/lib/collections';
 import { PrimitiveVariableValidatorCallback } from './primitive/primitive-variable-validator-callback';
 import { VariableValidationResult } from './variable-validation-result';
 import { IReadonlyPrimitiveVariable } from './primitive/readonly-primitive-variable.interface';
-
-function combineStates(states: Iterable<VariableValidationResult>): Nullable<VariableValidationResult>
-{
-    const errors: string[] = [];
-    const warnings: string[] = [];
-
-    for (const state of states)
-    {
-        if (!isNull(state.errors))
-            errors.push(...state.errors);
-
-        if (!isNull(state.warnings))
-            warnings.push(...state.warnings);
-    }
-
-    if (errors.length === 0 && warnings.length === 0)
-        return null;
-
-    return new VariableValidationResult(
-        errors.length > 0 ? errors : null,
-        warnings.length > 0 ? warnings : null);
-}
+import { PrimitiveVariableValidatorAsyncCallback } from './primitive/primitive-variable-validator-async-callback';
 
 function concatMessages(state: VariableValidationResult): Nullable<ReadonlyArray<string>>
 {
-    const warnings: string[] = isNull(state.warnings) ? [] : [...state.warnings];
+    const messages: string[] = isNull(state.warnings) ? [] : [...state.warnings];
     if (!isNull(state.errors))
-        warnings.push(...state.errors);
+        messages.push(...state.errors);
 
-    return warnings.length > 0 ? warnings : null;
+    return messages.length > 0 ? messages : null;
 }
 
 export namespace Validation
@@ -99,23 +78,22 @@ export namespace Validation
             return value =>
             {
                 const result = delegate(value);
-                if (isNull(result))
-                    return null;
+                return isNull(result) ?
+                    null :
+                    new VariableValidationResult(null, concatMessages(result));
+            };
+        }
 
-                if (isInstanceOfType(VariableValidationResult, result))
-                    return new VariableValidationResult(
-                        null,
-                        concatMessages(result));
-
-                return result.then(asyncResult =>
-                    {
-                        if (isNull(asyncResult))
-                            return null;
-
-                        return new VariableValidationResult(
-                            null,
-                            concatMessages(asyncResult));
-                    });
+        export function AsWarningsAsync<T = any>(
+            delegate: PrimitiveVariableValidatorAsyncCallback<T>):
+            PrimitiveVariableValidatorAsyncCallback<T>
+        {
+            return async value =>
+            {
+                const result = await delegate(value);
+                return isNull(result) ?
+                    null :
+                    new VariableValidationResult(null, concatMessages(result));
             };
         }
 
@@ -124,23 +102,22 @@ export namespace Validation
             return value =>
             {
                 const result = delegate(value);
-                if (isNull(result))
-                    return null;
+                return isNull(result) ?
+                    null :
+                    new VariableValidationResult(concatMessages(result), null);
+            };
+        }
 
-                if (isInstanceOfType(VariableValidationResult, result))
-                    return new VariableValidationResult(
-                        concatMessages(result),
-                        null);
-
-                return result.then(asyncResult =>
-                    {
-                        if (isNull(asyncResult))
-                            return null;
-
-                        return new VariableValidationResult(
-                            concatMessages(asyncResult),
-                            null);
-                    });
+        export function AsErrorsAsync<T = any>(
+            delegate: PrimitiveVariableValidatorAsyncCallback<T>):
+            PrimitiveVariableValidatorAsyncCallback<T>
+        {
+            return async value =>
+            {
+                const result = await delegate(value);
+                return isNull(result) ?
+                    null :
+                    new VariableValidationResult(concatMessages(result), null);
             };
         }
 
@@ -154,37 +131,34 @@ export namespace Validation
 
             return value =>
             {
-                const resultRange = Iteration.ToArray(
-                    Iteration.FilterNotNull(
+                const resultRange = Iteration.FilterNotNull(
+                    Iteration.Map(
+                        delegates,
+                        d => d(value)));
+
+                return VariableValidationResult.Combine(resultRange);
+            };
+        }
+
+        export function AndAsync<T>(
+            ...delegates: PrimitiveVariableValidatorAsyncCallback<T>[]):
+            PrimitiveVariableValidatorAsyncCallback<T>
+        {
+            if (!isDefined(delegates) || delegates.length === 0)
+                return () => Promise.resolve(null);
+
+            if (delegates.length === 1)
+                return delegates[0];
+
+            return async value =>
+            {
+                const resultRange = Iteration.FilterNotNull(
+                    await Promise.all(
                         Iteration.Map(
                             delegates,
                             d => d(value))));
 
-                const syncResultRange = Iteration.ToArray(
-                    Iteration.OfType(resultRange, VariableValidationResult));
-
-                const promiseRange = Iteration.ToArray(
-                    Iteration.ReinterpretCast<Promise<Nullable<VariableValidationResult>>>(
-                        Iteration.Filter(
-                            resultRange,
-                            r => !isInstanceOfType(VariableValidationResult, r))));
-
-                if (promiseRange.length === 0)
-                {
-                    if (syncResultRange.length === 0)
-                        return null;
-
-                    return combineStates(syncResultRange);
-                }
-                return Promise.all(promiseRange)
-                    .then(asyncNullableResultRange =>
-                        {
-                            const states = Iteration.Concat(
-                                syncResultRange,
-                                Iteration.FilterNotNull(asyncNullableResultRange));
-
-                            return combineStates(states);
-                        });
+                return VariableValidationResult.Combine(resultRange);
             };
         }
 
@@ -198,8 +172,7 @@ export namespace Validation
 
             return value =>
             {
-                const invalidStateRange: VariableValidationResult[] = [];
-                const promiseRange: Promise<Nullable<VariableValidationResult>>[] = [];
+                const invalidResultRange: VariableValidationResult[] = [];
 
                 for (const d of delegates)
                 {
@@ -207,40 +180,80 @@ export namespace Validation
                     if (isNull(result))
                         return null;
 
-                    if (isInstanceOfType(VariableValidationResult, result))
-                    {
-                        if ((isNull(result.errors) || result.errors.length === 0) &&
-                            (isNull(result.warnings) || result.warnings.length === 0))
-                            return null;
-
-                        invalidStateRange.push(result);
-                    }
-                    else
-                        promiseRange.push(result);
-                }
-
-                if (promiseRange.length === 0)
-                {
-                    if (invalidStateRange.length === 0)
+                    if ((isNull(result.errors) || result.errors.length === 0) &&
+                        (isNull(result.warnings) || result.warnings.length === 0))
                         return null;
 
-                    return combineStates(invalidStateRange);
+                    invalidResultRange.push(result);
                 }
-                return Promise.all(promiseRange)
-                    .then(asyncNullableResultRange =>
-                        {
-                            for (const result of asyncNullableResultRange)
-                            {
-                                if (isNull(result) ||
-                                    ((isNull(result.errors) || result.errors.length === 0) &&
-                                    (isNull(result.warnings) || result.warnings.length === 0)))
-                                    return null;
 
-                                invalidStateRange.push(result);
-                            }
+                return VariableValidationResult.Combine(invalidResultRange);
+            };
+        }
 
-                            return combineStates(invalidStateRange);
-                        });
+        export function OrAsync<T>(
+            ...delegates: PrimitiveVariableValidatorAsyncCallback<T>[]):
+            PrimitiveVariableValidatorAsyncCallback<T>
+        {
+            if (!isDefined(delegates) || delegates.length === 0)
+                return () => Promise.resolve(null);
+
+            if (delegates.length === 1)
+                return delegates[0];
+
+            return async value =>
+            {
+                const resultRange = await Promise.all(
+                    Iteration.Map(
+                        delegates,
+                        d => d(value)));
+
+                const invalidResultRange: VariableValidationResult[] = [];
+
+                for (const result of resultRange)
+                {
+                    if (isNull(result))
+                        return null;
+
+                    if ((isNull(result.errors) || result.errors.length === 0) &&
+                        (isNull(result.warnings) || result.warnings.length === 0))
+                        return null;
+
+                    invalidResultRange.push(result);
+                }
+
+                return VariableValidationResult.Combine(invalidResultRange);
+            };
+        }
+
+        export function OrSequentialAsync<T>(
+            ...delegates: PrimitiveVariableValidatorAsyncCallback<T>[]):
+            PrimitiveVariableValidatorAsyncCallback<T>
+        {
+            if (!isDefined(delegates) || delegates.length === 0)
+                return () => Promise.resolve(null);
+
+            if (delegates.length === 1)
+                return delegates[0];
+
+            return async value =>
+            {
+                const invalidResultRange: VariableValidationResult[] = [];
+
+                for (const d of delegates)
+                {
+                    const result = await d(value);
+                    if (isNull(result))
+                        return null;
+
+                    if ((isNull(result.errors) || result.errors.length === 0) &&
+                        (isNull(result.warnings) || result.warnings.length === 0))
+                        return null;
+
+                    invalidResultRange.push(result);
+                }
+
+                return VariableValidationResult.Combine(invalidResultRange);
             };
         }
 
@@ -255,24 +268,30 @@ export namespace Validation
                 if (isNull(result))
                     return stateFactory();
 
-                if (isInstanceOfType(VariableValidationResult, result))
-                {
-                    if ((isNull(result.errors) || result.errors.length === 0) &&
-                        (isNull(result.warnings) || result.warnings.length === 0))
-                        return stateFactory();
+                if ((isNull(result.errors) || result.errors.length === 0) &&
+                    (isNull(result.warnings) || result.warnings.length === 0))
+                    return stateFactory();
 
-                    return null;
-                }
+                return null;
+            };
+        }
 
-                return result.then(asyncResult =>
-                    {
-                        if (isNull(asyncResult) ||
-                            ((isNull(asyncResult.errors) || asyncResult.errors.length === 0) &&
-                            (isNull(asyncResult.warnings) || asyncResult.warnings.length === 0)))
-                            return stateFactory();
+        export function NotAsync<T>(
+            delegate: PrimitiveVariableValidatorAsyncCallback<T>,
+            stateFactory: () => VariableValidationResult):
+            PrimitiveVariableValidatorAsyncCallback<T>
+        {
+            return async value =>
+            {
+                const result = await delegate(value);
+                if (isNull(result))
+                    return stateFactory();
 
-                        return null;
-                    });
+                if ((isNull(result.errors) || result.errors.length === 0) &&
+                    (isNull(result.warnings) || result.warnings.length === 0))
+                    return stateFactory();
+
+                return null;
             };
         }
 
