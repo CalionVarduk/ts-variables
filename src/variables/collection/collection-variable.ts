@@ -22,51 +22,51 @@ import { UpdateRef } from '../../update-ref';
 import { CollectionVariableRecreationSource } from './collection-variable-recreation-source.enum';
 import { CollectionVariableRecreateCancellationReason } from './collection-variable-recreate-cancellation-reason.enum';
 
-class IndexedCollection<TKey, TElement>
+class IndexedElementRange<TKey, TElement>
 {
-    public get lookup(): IReadonlyKeyedCollection<TKey, TElement>
+    public get collection(): IReadonlyKeyedCollection<TKey, TElement>
     {
-        return this._lookup;
+        return this._collection;
     }
 
-    public get all(): ReadonlyArray<TElement>
+    public get elements(): ReadonlyArray<TElement>
     {
-        return this._all;
+        return this._elements;
     }
 
-    private _lookup: KeyedCollection<TKey, TElement>;
-    private readonly _all: TElement[];
+    private _collection: KeyedCollection<TKey, TElement>;
+    private readonly _elements: TElement[];
     private readonly _indexer: UnorderedMap<TKey, number>;
 
     public constructor(params: CollectionVariableValueParams<TKey, TElement>)
     {
-        this._lookup = new KeyedCollection<TKey, TElement>(
+        this._collection = new KeyedCollection<TKey, TElement>(
             isDefined(params.name) && params.name.length > 0 ? params.name : 'elements',
             params.keySelector,
             params.keyStringifier);
 
         if (isDefined(params.lookups))
             for (const lookup of params.lookups)
-                this._lookup.addLookup(lookup.name, lookup.keySelector, lookup.keyStringifier);
+                this._collection.addLookup(lookup.name, lookup.keySelector, lookup.keyStringifier);
 
-        this._all = [];
+        this._elements = [];
         this._indexer = new UnorderedMap<TKey, number>(params.keyStringifier);
     }
 
     public getKey(element: TElement): DeepReadonly<TKey>
     {
-        return this._lookup.primaryLookup.getEntityKey(toDeepReadonly(element));
+        return this._collection.primaryLookup.getEntityKey(toDeepReadonly(element));
     }
 
     public has(element: TElement): boolean
     {
-        return this._lookup.has(toDeepReadonly(element));
+        return this._collection.has(toDeepReadonly(element));
     }
 
     public tryGet(element: TElement): Nullable<TElement>
     {
         const key = this.getKey(element);
-        return this._lookup.tryGet(key);
+        return this._collection.tryGet(key);
     }
 
     public getIndex(element: DeepReadonly<TElement>): number
@@ -78,13 +78,13 @@ class IndexedCollection<TKey, TElement>
 
     public addRange(range: Iterable<TElement>): TElement[]
     {
-        const added = Iteration.ToArray(this._lookup.tryAddRange(range));
+        const added = Iteration.ToArray(this._collection.tryAddRange(range));
 
         for (const element of added)
         {
             const key = this.getKey(element);
-            const index = this._all.length;
-            this._all.push(element);
+            const index = this._elements.length;
+            this._elements.push(element);
             this._indexer.set(key, index);
         }
         return added;
@@ -92,7 +92,7 @@ class IndexedCollection<TKey, TElement>
 
     public removeRange(range: Iterable<TElement>): TElement[]
     {
-        const removed = Iteration.ToArray(this._lookup.tryDeleteRange(Iteration.AsDeepReadonly(range)));
+        const removed = Iteration.ToArray(this._collection.tryDeleteRange(Iteration.AsDeepReadonly(range)));
         if (removed.length === 0)
             return removed;
 
@@ -119,22 +119,22 @@ class IndexedCollection<TKey, TElement>
 
             const moveCount = (
                 nextRemovedIndicesIndex >= removedIndices.length ?
-                    this._all.length :
+                    this._elements.length :
                     removedIndices[nextRemovedIndicesIndex]
                 ) - indexToMoveFrom;
 
             for (let i = 0; i < moveCount; ++i)
             {
                 const newPersistedIndex = indexToMoveTo + i;
-                const persisted = this._all[indexToMoveFrom + i];
+                const persisted = this._elements[indexToMoveFrom + i];
                 const key = this.getKey(persisted);
                 this._indexer.set(key, newPersistedIndex);
-                this._all[newPersistedIndex] = persisted;
+                this._elements[newPersistedIndex] = persisted;
             }
             removedIndicesIndex = nextRemovedIndicesIndex;
             indexToMoveTo += moveCount;
         }
-        this._all.splice(this._all.length - removedIndices.length);
+        this._elements.splice(this._elements.length - removedIndices.length);
 
         return removed;
     }
@@ -145,7 +145,7 @@ class IndexedCollection<TKey, TElement>
             Iteration.Unique(range, e =>
                 {
                     const key = this.getKey(reinterpretCast<TElement>(e.value));
-                    return this._lookup.primaryLookup.keyStringifier(key);
+                    return this._collection.primaryLookup.keyStringifier(key);
                 }));
 
         if (replaced.length === 0)
@@ -156,10 +156,10 @@ class IndexedCollection<TKey, TElement>
         // but a keySelector/keyStringifier might, though i'm not sure if this should be supported
         // if delegates throw, then its on the dev to make sure they don't
         // no hand-holding here, at least not too much
-        this._lookup.deleteRange(
+        this._collection.deleteRange(
             Iteration.Map(replaced, e => toDeepReadonly(e.oldValue)));
 
-        this._lookup.tryAddRange(
+        this._collection.tryAddRange(
             Iteration.Map(replaced, e => e.value));
 
         for (const element of replaced)
@@ -167,7 +167,7 @@ class IndexedCollection<TKey, TElement>
             const key = this.getKey(element.value);
             const index = this._indexer.get(key);
             this._indexer.set(key, index);
-            this._all[index] = element.value;
+            this._elements[index] = element.value;
         }
         return replaced;
     }
@@ -175,14 +175,14 @@ class IndexedCollection<TKey, TElement>
     public update(collection: KeyedCollection<TKey, TElement>): void
     {
         this._indexer.clear();
-        this._all.splice(0);
-        this._lookup = collection;
+        this._elements.splice(0);
+        this._collection = collection;
 
         for (const element of collection.entities())
         {
             const key = this.getKey(element);
-            const index = this._all.length;
-            this._all.push(element);
+            const index = this._elements.length;
+            this._elements.push(element);
             this._indexer.set(key, index);
         }
     }
@@ -221,12 +221,12 @@ export class CollectionVariable<TKey = any, TElement = any>
 {
     public get value(): IReadonlyKeyedCollection<TKey, TElement>
     {
-        return this._data.lookup;
+        return this._data.collection;
     }
 
     public get elements(): ReadonlyArray<TElement>
     {
-        return this._data.all;
+        return this._data.elements;
     }
 
     public get changeTracker(): CollectionVariableChangeTracker<TKey, TElement>
@@ -310,7 +310,7 @@ export class CollectionVariable<TKey = any, TElement = any>
     private readonly _onRecreated: EventHandler<CollectionVariableRecreatedEvent<TKey, TElement>>;
     private readonly _onRecreateCancelled: EventHandler<CollectionVariableRecreateCancelledEvent<TKey, TElement>>;
 
-    private readonly _data: IndexedCollection<TKey, TElement>;
+    private readonly _data: IndexedElementRange<TKey, TElement>;
 
     public constructor(params: CollectionVariableParams<TKey, TElement>)
     {
@@ -318,7 +318,7 @@ export class CollectionVariable<TKey = any, TElement = any>
             isDefined(params.changeTracker) ? params.changeTracker : new CollectionVariableChangeTracker<TKey, TElement>(),
             isDefined(params.validator) ? params.validator : new CollectionVariableValidator<TKey, TElement>());
 
-        this._data = new IndexedCollection<TKey, TElement>(params.collection);
+        this._data = new IndexedElementRange<TKey, TElement>(params.collection);
         if (isDefined(params.value))
             this._data.addRange(params.value);
 
@@ -361,8 +361,8 @@ export class CollectionVariable<TKey = any, TElement = any>
         this._onRecreated.dispose();
         this._onRecreateCancelled.dispose();
 
-        for (const element of this._data.all)
-            this._tryAutoDisposeElement(element);
+        for (const element of this._data.elements)
+            this.tryAutoDisposeElement(element);
 
         super.dispose();
     }
@@ -379,7 +379,7 @@ export class CollectionVariable<TKey = any, TElement = any>
             return;
 
         const cancellableEvent = new CollectionVariableAddingElementsEvent<TKey, TElement>(
-            this.changeTracker.originalValue, this._data.lookup, materializedElements);
+            this.changeTracker.originalValue, this._data.collection, materializedElements);
 
         this.publishAddingElements(cancellableEvent);
 
@@ -400,7 +400,7 @@ export class CollectionVariable<TKey = any, TElement = any>
             return;
 
         const cancellableEvent = new CollectionVariableRemovingElementsEvent<TKey, TElement>(
-            this.changeTracker.originalValue, this._data.lookup, materializedElements);
+            this.changeTracker.originalValue, this._data.collection, materializedElements);
 
         this.publishRemovingElements(cancellableEvent);
 
@@ -409,7 +409,7 @@ export class CollectionVariable<TKey = any, TElement = any>
             return;
 
         for (const element of removedElements)
-            this._tryAutoDisposeElement(element);
+            this.tryAutoDisposeElement(element);
 
         const event = new CollectionVariableElementsRemovedEvent<TKey, TElement>(
             cancellableEvent, removedElements);
@@ -435,7 +435,7 @@ export class CollectionVariable<TKey = any, TElement = any>
             return;
 
         const cancellableEvent = new CollectionVariableReplacingElementsEvent<TKey, TElement>(
-            this.changeTracker.originalValue, this._data.lookup, materializedElements);
+            this.changeTracker.originalValue, this._data.collection, materializedElements);
 
         this.publishReplacingElements(cancellableEvent);
 
@@ -444,7 +444,7 @@ export class CollectionVariable<TKey = any, TElement = any>
             return;
 
         for (const element of replacedElements)
-            this._tryAutoDisposeElement(element.oldValue);
+            this.tryAutoDisposeElement(element.oldValue);
 
         const event = new CollectionVariableElementsReplacedEvent<TKey, TElement>(
             cancellableEvent, replacedElements);
@@ -474,7 +474,7 @@ export class CollectionVariable<TKey = any, TElement = any>
             return;
 
         const cancellableEvent = new CollectionVariableSettingElementsEvent<TKey, TElement>(
-            this.changeTracker.originalValue, this._data.lookup, materializedElementsToAdd, materializedElementsToReplace);
+            this.changeTracker.originalValue, this._data.collection, materializedElementsToAdd, materializedElementsToReplace);
 
         this.publishSettingElements(cancellableEvent);
 
@@ -485,7 +485,7 @@ export class CollectionVariable<TKey = any, TElement = any>
             return;
 
         for (const element of replacedElements)
-            this._tryAutoDisposeElement(element.oldValue);
+            this.tryAutoDisposeElement(element.oldValue);
 
         const event = new CollectionVariableElementsSetEvent<TKey, TElement>(
             cancellableEvent, addedElements, replacedElements);
@@ -495,7 +495,7 @@ export class CollectionVariable<TKey = any, TElement = any>
 
     public reset(): void
     {
-        const value = KeyedCollection.CloneSchema(this._data.lookup);
+        const value = KeyedCollection.CloneSchema(this._data.collection);
         value.tryAddRange(
             Iteration.Map(
                 this.changeTracker.originalValue.entities(),
@@ -506,14 +506,14 @@ export class CollectionVariable<TKey = any, TElement = any>
 
     public tryRecreate(elements: Iterable<TElement>): boolean
     {
-        const value = KeyedCollection.CloneSchema(this._data.lookup);
+        const value = KeyedCollection.CloneSchema(this._data.collection);
         value.tryAddRange(elements);
 
-        if (this.changeTracker.areEqual(this._data.lookup, value))
+        if (this.changeTracker.areEqual(this._data.collection, value))
         {
             const cancelledEvent = new CollectionVariableRecreateCancelledEvent<TKey, TElement>(
                 this.changeTracker.originalValue,
-                this._data.lookup,
+                this._data.collection,
                 value,
                 CollectionVariableRecreateCancellationReason.EqualityComparison);
 
@@ -522,7 +522,7 @@ export class CollectionVariable<TKey = any, TElement = any>
         }
 
         const cancellableEvent = new CollectionVariableRecreatingEvent<TKey, TElement>(
-            this._data.lookup, value, this.changeTracker);
+            this._data.collection, value, this.changeTracker);
 
         this.publishRecreating(cancellableEvent);
 
@@ -530,7 +530,7 @@ export class CollectionVariable<TKey = any, TElement = any>
         {
             const cancelledEvent = new CollectionVariableRecreateCancelledEvent<TKey, TElement>(
                 this.changeTracker.originalValue,
-                this._data.lookup,
+                this._data.collection,
                 value,
                 CollectionVariableRecreateCancellationReason.OnRecreatingEvent);
 
@@ -544,17 +544,17 @@ export class CollectionVariable<TKey = any, TElement = any>
 
     public recreate(elements: Iterable<TElement>): void
     {
-        const value = KeyedCollection.CloneSchema(this._data.lookup);
+        const value = KeyedCollection.CloneSchema(this._data.collection);
         value.tryAddRange(elements);
         this.setValue(value, CollectionVariableRecreationSource.Recreate);
     }
 
     public clear(): void
     {
-        if (this._data.lookup.length === 0)
+        if (this._data.collection.length === 0)
             return;
 
-        const value = KeyedCollection.CloneSchema(this._data.lookup);
+        const value = KeyedCollection.CloneSchema(this._data.collection);
         this.setValue(value, CollectionVariableRecreationSource.Clear);
     }
 
@@ -565,16 +565,16 @@ export class CollectionVariable<TKey = any, TElement = any>
 
     protected setValue(value: KeyedCollection<TKey, TElement>, changeSource: CollectionVariableRecreationSource): void
     {
-        const previousCollection = this._data.lookup;
+        const previousCollection = this._data.collection;
 
-        for (const element of this._data.all)
-            this._tryAutoDisposeElement(element);
+        for (const element of this._data.elements)
+            this.tryAutoDisposeElement(element);
 
         this._data.update(value);
 
         const event = new CollectionVariableRecreatedEvent<TKey, TElement>(
             previousCollection,
-            this._data.lookup,
+            this._data.collection,
             changeSource,
             this.changeTracker);
 
@@ -636,7 +636,7 @@ export class CollectionVariable<TKey = any, TElement = any>
         this._onRecreated.publish(this, e);
     }
 
-    private _tryAutoDisposeElement(element: TElement): void
+    protected tryAutoDisposeElement(element: TElement): void
     {
         if (!this.isAutoDisposing)
             return;
