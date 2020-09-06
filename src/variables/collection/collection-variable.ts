@@ -151,6 +151,11 @@ class IndexedCollection<TKey, TElement>
         if (replaced.length === 0)
             return replaced;
 
+        // TODO: delete + tryAdd must be atomic in case an error is thrown by one of the lookups during addition
+        // actually, test this, tryAdd will never throw on its own
+        // but a keySelector/keyStringifier might, though i'm not sure if this should be supported
+        // if delegates throw, then its on the dev to make sure they don't
+        // no hand-holding here, at least not too much
         this._lookup.deleteRange(
             Iteration.Map(replaced, e => toDeepReadonly(e.oldValue)));
 

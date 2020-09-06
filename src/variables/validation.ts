@@ -1,8 +1,7 @@
 import { Nullable, DeepReadonly, Ensured, Stringifier } from 'frl-ts-utils/lib/types';
-import { isDefined, isNull, isUndefined } from 'frl-ts-utils/lib/functions';
-import { Iteration, UnorderedSet } from 'frl-ts-utils/lib/collections';
+import { isDefined, isNull, isUndefined, reinterpretCast } from 'frl-ts-utils/lib/functions';
+import { Iteration, UnorderedSet, IReadonlyKeyedCollection } from 'frl-ts-utils/lib/collections';
 import { VariableValidationResult } from './variable-validation-result';
-import { IReadonlyPrimitiveVariable } from './primitive/readonly-primitive-variable.interface';
 import { VariableValidatorCallback } from './variable-validator-callback';
 import { VariableValidatorAsyncCallback } from './variable-validator-async-callback';
 import { IVariable } from './variable.interface';
@@ -19,6 +18,12 @@ function concatMessages(state: VariableValidationResult): Nullable<ReadonlyArray
 export namespace Validation
 {
     export const NOT_SYNCHRONIZED = 'NOT_SYNCHRONIZED';
+    export const NOT_EMPTY = 'NOT_EMPTY';
+    export const EMPTY = 'EMPTY';
+    export const LENGTH_LESS_THAN = 'LENGTH_LESS_THAN';
+    export const LENGTH_GREATER_THAN = 'LENGTH_GREATER_THAN';
+    export const LENGTH_NOT_BETWEEN = 'LENGTH_NOT_BETWEEN';
+    export const LENGTH_BETWEEN = 'LENGTH_BETWEEN';
 
     export function Sync<T>(other: IVariable<T>, syncName?: string): VariableValidatorCallback<T>
     {
@@ -272,12 +277,6 @@ export namespace Validation
         export const NOT_IN_SET = 'NOT_IN_SET';
         export const IN = 'IN';
         export const IN_SET = 'IN_SET';
-        export const NOT_EMPTY = 'NOT_EMPTY';
-        export const EMPTY = 'EMPTY';
-        export const LENGTH_LESS_THAN = 'LENGTH_LESS_THAN';
-        export const LENGTH_GREATER_THAN = 'LENGTH_GREATER_THAN';
-        export const LENGTH_NOT_BETWEEN = 'LENGTH_NOT_BETWEEN';
-        export const LENGTH_BETWEEN = 'LENGTH_BETWEEN';
         export const PATTERN_NOT_MATCHED = 'PATTERN_NOT_MATCHED';
         export const PATTERN_MATCHED = 'PATTERN_MATCHED';
         export const NOT_INTEGER = 'NOT_INTEGER';
@@ -1056,6 +1055,168 @@ export namespace Validation
                     return VariableValidationResult.CreateErrors(errorMsg);
                 };
             }
+        }
+    }
+
+    export namespace Collection
+    {
+        export const NOT_CONTAINS = 'NOT_CONTAINS';
+        export const CONTAINS = 'CONTAINS';
+
+        export function Empty<TKey, TElement>(): VariableValidatorCallback<IReadonlyKeyedCollection<TKey, TElement>>
+        {
+            return value =>
+            {
+                if (value.length === 0)
+                    return null;
+
+                return VariableValidationResult.CreateErrors(NOT_EMPTY);
+            };
+        }
+
+        export function NotEmpty<TKey, TElement>(): VariableValidatorCallback<IReadonlyKeyedCollection<TKey, TElement>>
+        {
+            return value =>
+            {
+                if (value.length > 0)
+                    return null;
+
+                return VariableValidationResult.CreateErrors(EMPTY);
+            };
+        }
+
+        export function MinLength<TKey, TElement>(
+            length: number):
+            VariableValidatorCallback<IReadonlyKeyedCollection<TKey, TElement>>
+        {
+            const errorMsg = `${LENGTH_LESS_THAN}_${length.toString().toUpperCase()}`;
+
+            return value =>
+            {
+                if (value.length >= length)
+                    return null;
+
+                return VariableValidationResult.CreateErrors(errorMsg);
+            };
+        }
+
+        export function MaxLength<TKey, TElement>(
+            length: number):
+            VariableValidatorCallback<IReadonlyKeyedCollection<TKey, TElement>>
+        {
+            const errorMsg = `${LENGTH_GREATER_THAN}_${length.toString().toUpperCase()}`;
+
+            return value =>
+            {
+                if (value.length <= length)
+                    return null;
+
+                return VariableValidationResult.CreateErrors(errorMsg);
+            };
+        }
+
+        export function LengthBetween<TKey, TElement>(
+            minLength: number,
+            maxLength: number):
+            VariableValidatorCallback<IReadonlyKeyedCollection<TKey, TElement>>
+        {
+            const errorMsg = `${LENGTH_NOT_BETWEEN}_${minLength.toString().toUpperCase()}_${maxLength.toString().toUpperCase()}`;
+
+            return value =>
+            {
+                if (value.length >= minLength && value.length <= maxLength)
+                    return null;
+
+                return VariableValidationResult.CreateErrors(errorMsg);
+            };
+        }
+
+        export function LengthNotBetween<TKey, TElement>(
+            minLength: number,
+            maxLength: number):
+            VariableValidatorCallback<IReadonlyKeyedCollection<TKey, TElement>>
+        {
+            const errorMsg = `${LENGTH_BETWEEN}_${minLength.toString().toUpperCase()}_${maxLength.toString().toUpperCase()}`;
+
+            return value =>
+            {
+                if (value.length < minLength || value.length > maxLength)
+                    return null;
+
+                return VariableValidationResult.CreateErrors(errorMsg);
+            };
+        }
+
+        export function ContainsKey<TKey, TElement>(
+            key: DeepReadonly<TKey>,
+            keyName?: string):
+            VariableValidatorCallback<IReadonlyKeyedCollection<TKey, TElement>>
+        {
+            const name = isDefined(keyName) ? keyName : reinterpretCast<Object>(key).toString();
+            const errorMsg = `${NOT_CONTAINS}_${name.toUpperCase()}`;
+
+            return value =>
+            {
+                if (value.hasKey(key))
+                    return null;
+
+                return VariableValidationResult.CreateErrors(errorMsg);
+            };
+        }
+
+        export function NotContainsKey<TKey, TElement>(
+            key: DeepReadonly<TKey>,
+            keyName?: string):
+            VariableValidatorCallback<IReadonlyKeyedCollection<TKey, TElement>>
+        {
+            const name = isDefined(keyName) ? keyName : reinterpretCast<Object>(key).toString();
+            const errorMsg = `${CONTAINS}_${name.toUpperCase()}`;
+
+            return value =>
+            {
+                if (!value.hasKey(key))
+                    return null;
+
+                return VariableValidationResult.CreateErrors(errorMsg);
+            };
+        }
+
+        export function ContainsLookupKey<TKey, TElement, TLookupKey>(
+            lookupName: string,
+            key: DeepReadonly<TLookupKey>,
+            keyName?: string):
+            VariableValidatorCallback<IReadonlyKeyedCollection<TKey, TElement>>
+        {
+            const name = isDefined(keyName) ? keyName : reinterpretCast<Object>(key).toString();
+            const errorMsg = `${NOT_CONTAINS}_${name.toUpperCase()}`;
+
+            return value =>
+            {
+                const lookup = value.getLookup<TLookupKey>(lookupName);
+                if (lookup.hasKey(key))
+                    return null;
+
+                return VariableValidationResult.CreateErrors(errorMsg);
+            };
+        }
+
+        export function NotContainsLookupKey<TKey, TElement, TLookupKey>(
+            lookupName: string,
+            key: DeepReadonly<TLookupKey>,
+            keyName?: string):
+            VariableValidatorCallback<IReadonlyKeyedCollection<TKey, TElement>>
+        {
+            const name = isDefined(keyName) ? keyName : reinterpretCast<Object>(key).toString();
+            const errorMsg = `${CONTAINS}_${name.toUpperCase()}`;
+
+            return value =>
+            {
+                const lookup = value.getLookup<TLookupKey>(lookupName);
+                if (!lookup.hasKey(key))
+                    return null;
+
+                return VariableValidationResult.CreateErrors(errorMsg);
+            };
         }
     }
 }
