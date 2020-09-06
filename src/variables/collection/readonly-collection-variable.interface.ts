@@ -39,4 +39,5 @@ export interface IReadonlyCollectionVariable<TKey = any, TElement = any>
     readonly onRecreateCancelled: IEvent<CollectionVariableRecreateCancelledEvent<TKey, TElement>>;
 
     getIndex(element: DeepReadonly<TElement>): number;
+    getIndexByKey(key: DeepReadonly<TKey>): number;
 }

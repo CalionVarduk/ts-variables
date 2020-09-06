@@ -7,7 +7,7 @@
 [![Dev Dependency Status](https://david-dm.org/CalionVarduk/ts-variables/dev-status.svg)](https://david-dm.org/CalionVarduk/ts-variables?type=dev)
 [![License](https://img.shields.io/github/license/mashape/apistatus.svg)](https://github.com/CalionVarduk/ts-variables/blob/master/LICENSE)
 
-TODO
+A TypeScript framework that contains trackable & validatable variables.
 
 ## A. Installation
 

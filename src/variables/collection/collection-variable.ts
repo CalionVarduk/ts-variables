@@ -69,9 +69,8 @@ class IndexedElementRange<TKey, TElement>
         return this._collection.tryGet(key);
     }
 
-    public getIndex(element: DeepReadonly<TElement>): number
+    public getIndex(key: DeepReadonly<TKey>): number
     {
-        const key = this.getKey(deepReadonlyCast(element));
         const index = this._indexer.tryGet(key);
         return isNull(index) ? -1 : index;
     }
@@ -369,7 +368,13 @@ export class CollectionVariable<TKey = any, TElement = any>
 
     public getIndex(element: DeepReadonly<TElement>): number
     {
-        return this._data.getIndex(element);
+        const key = this._data.getKey(deepReadonlyCast(element));
+        return this._data.getIndex(key);
+    }
+
+    public getIndexByKey(key: DeepReadonly<TKey>): number
+    {
+        return this._data.getIndex(key);
     }
 
     public add(elements: Iterable<TElement>): void

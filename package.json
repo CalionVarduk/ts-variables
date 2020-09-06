@@ -1,7 +1,7 @@
 {
   "name": "frl-ts-variables",
-  "version": "0.0.1",
-  "description": "TODO",
+  "version": "0.0.1-alpha",
+  "description": "A TypeScript framework that contains trackable & validatable variables",
   "main": "./lib/index.js",
   "types": "./lib/index.d.ts",
   "files": [
