@@ -43,6 +43,6 @@
     "typescript": "3.1.6"
   },
   "dependencies": {
-    "frl-ts-utils": "2.2.6"
+    "frl-ts-utils": "2.2.9"
   }
 }

@@ -5,24 +5,24 @@ import { VariableValidatorBase } from '../variable-validator-base.abstract';
 import { IPrimitiveVariableValidator } from './primitive-variable-validator.interface';
 import { PrimitiveVariableValidatorState } from './primitive-variable-validator-state';
 import { IReadonlyPrimitiveVariable } from './readonly-primitive-variable.interface';
-import { PrimitiveVariableValidatorCallback } from './primitive-variable-validator-callback';
 import { PrimitiveVariableValueChangedEvent } from './primitive-variable-value-changed-event';
 import { PrimitiveVariableValidatedEvent } from './primitive-variable-validated-event';
 import { VariableValidationResult } from '../variable-validation-result';
-import { PrimitiveVariableValidatorAsyncCallback } from './primitive-variable-validator-async-callback';
 import { VariableValidationParams } from '../variable-validation-params';
-import { PrimitiveVariableValidationAction } from './primitive-variable-validation-action';
 import { Iteration } from 'frl-ts-utils/lib/collections';
-import { PrimitiveVariableValidationAsyncAction } from './primitive-variable-validation-async-action';
 import { VariableValidatorFinishMode } from '../variable-validator-finish-mode.enum';
+import { VariableValidatorCallback } from '../variable-validator-callback';
+import { VariableValidatorAsyncCallback } from '../variable-validator-async-callback';
+import { VariableValidationCallbackAction } from '../variable-validation-callback-action';
+import { VariableValidationCallbackAsyncAction } from '../variable-validation-callback-async-action';
 
 export type PrimitiveVariableValidatorParams<T = any> =
 {
     readonly attach?: boolean;
     readonly alwaysFinishSyncValidation?: boolean;
     readonly validateImmediately?: boolean;
-    readonly callbacks?: Iterable<PrimitiveVariableValidatorCallback<T>>;
-    readonly asyncCallbacks?: Iterable<PrimitiveVariableValidatorAsyncCallback<T>>;
+    readonly callbacks?: Iterable<VariableValidatorCallback<Nullable<DeepReadonly<T>>>>;
+    readonly asyncCallbacks?: Iterable<VariableValidatorAsyncCallback<Nullable<DeepReadonly<T>>>>;
 };
 
 export class PrimitiveVariableValidator<T = any>
@@ -57,8 +57,12 @@ export class PrimitiveVariableValidator<T = any>
         super({
             attach: params.attach,
             alwaysFinishSyncValidation: params.alwaysFinishSyncValidation,
-            validationAction: callbacks.length > 0 ? new PrimitiveVariableValidationAction<T>(callbacks) : null,
-            asyncValidationAction: asyncCallbacks.length > 0 ? new PrimitiveVariableValidationAsyncAction<T>(asyncCallbacks) : null
+            validationAction: callbacks.length > 0 ?
+                new VariableValidationCallbackAction<Nullable<DeepReadonly<T>>>(callbacks) :
+                null,
+            asyncValidationAction: asyncCallbacks.length > 0 ?
+                new VariableValidationCallbackAsyncAction<Nullable<DeepReadonly<T>>>(asyncCallbacks) :
+                null
         });
 
         this._validateImmediately = isDefined(params.validateImmediately) ? params.validateImmediately : true;
@@ -84,8 +88,7 @@ export class PrimitiveVariableValidator<T = any>
     {
         super.configure(linkedVariable);
 
-        this._state = PrimitiveVariableValidatorState.CreateFromResult(
-            linkedVariable.value, VariableValidationResult.CreateEmpty());
+        this._state = PrimitiveVariableValidatorState.CreateValid(linkedVariable.value);
 
         if (this._validateImmediately)
             this.beginValidation(linkedVariable.value);
@@ -101,9 +104,11 @@ export class PrimitiveVariableValidator<T = any>
 
     protected startDetachedValidation(): VariableValidationParams<Nullable<DeepReadonly<T>>>
     {
-        const currentValue = this.linkedVariable!.value;
+        this._state = new PrimitiveVariableValidatorState<T>(
+            this.linkedVariable!.value, this._state.errors, this._state.warnings);
+
         const result: VariableValidationParams<Nullable<DeepReadonly<T>>> = {
-            value: currentValue,
+            value: this.linkedVariable!.value,
             args: null
         };
         return result;

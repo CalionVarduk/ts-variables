@@ -9,7 +9,6 @@ import { ObjectVariableChanges } from './object-variable-changes.abstract';
 import { IReadonlyObjectVariable } from './readonly-object-variable.interface';
 import { ObjectVariablePropertyChange } from './object-variable-property-change';
 import { IVariable } from '../variable.interface';
-import { IVariableChangeTracker } from '../variable-change-tracker.interface';
 import { ObjectVariablePropertyChangeType } from './object-variable-property-change-type.enum';
 import { VariableChangeEvent } from '../variable-change-event';
 
@@ -59,10 +58,15 @@ export class ObjectVariableChangeTracker
         return reinterpretCast<Nullable<IReadonlyObjectVariable>>(super.linkedVariable);
     }
 
+    protected get properties(): Nullable<IReadonlyUnorderedMap<string, IVariable>>
+    {
+        return this._properties;
+    }
+
     private readonly _propertyChangeListeners: IEventListener[];
     private readonly _changes: MutableObjectVariableChanges;
 
-    private _resetListener: Nullable<IEventListener>;
+    private _resetListener: Nullable<IEventListener>; // TODO: can be removed for now
     private _properties: Nullable<IReadonlyUnorderedMap<string, IVariable>>;
     private _originalValue: ObjectVariableValue;
 

@@ -1,10 +1,11 @@
 import { Nullable, DeepReadonly, Ensured, Stringifier } from 'frl-ts-utils/lib/types';
 import { isDefined, isNull, isUndefined } from 'frl-ts-utils/lib/functions';
 import { Iteration, UnorderedSet } from 'frl-ts-utils/lib/collections';
-import { PrimitiveVariableValidatorCallback } from './primitive/primitive-variable-validator-callback';
 import { VariableValidationResult } from './variable-validation-result';
 import { IReadonlyPrimitiveVariable } from './primitive/readonly-primitive-variable.interface';
-import { PrimitiveVariableValidatorAsyncCallback } from './primitive/primitive-variable-validator-async-callback';
+import { VariableValidatorCallback } from './variable-validator-callback';
+import { VariableValidatorAsyncCallback } from './variable-validator-async-callback';
+import { IVariable } from './variable.interface';
 
 function concatMessages(state: VariableValidationResult): Nullable<ReadonlyArray<string>>
 {
@@ -17,6 +18,241 @@ function concatMessages(state: VariableValidationResult): Nullable<ReadonlyArray
 
 export namespace Validation
 {
+    export const NOT_SYNCHRONIZED = 'NOT_SYNCHRONIZED';
+
+    export function Sync<T>(other: IVariable<T>, syncName?: string): VariableValidatorCallback<T>
+    {
+        const errorMsg = isDefined(syncName) ?
+            `${syncName}_${NOT_SYNCHRONIZED}` :
+            NOT_SYNCHRONIZED;
+
+        return value =>
+        {
+            if (other.changeTracker.areEqual(value, other.value))
+                return null;
+
+            return VariableValidationResult.CreateErrors(errorMsg);
+        };
+    }
+
+    export function AsWarnings<T = any>(delegate: VariableValidatorCallback<T>): VariableValidatorCallback<T>
+    {
+        return value =>
+        {
+            const result = delegate(value);
+            return isNull(result) ?
+                null :
+                new VariableValidationResult(null, concatMessages(result));
+        };
+    }
+
+    export function AsWarningsAsync<T = any>(delegate: VariableValidatorAsyncCallback<T>): VariableValidatorAsyncCallback<T>
+    {
+        return async value =>
+        {
+            const result = await delegate(value);
+            return isNull(result) ?
+                null :
+                new VariableValidationResult(null, concatMessages(result));
+        };
+    }
+
+    export function AsErrors<T = any>(delegate: VariableValidatorCallback<T>): VariableValidatorCallback<T>
+    {
+        return value =>
+        {
+            const result = delegate(value);
+            return isNull(result) ?
+                null :
+                new VariableValidationResult(concatMessages(result), null);
+        };
+    }
+
+    export function AsErrorsAsync<T = any>(delegate: VariableValidatorAsyncCallback<T>): VariableValidatorAsyncCallback<T>
+    {
+        return async value =>
+        {
+            const result = await delegate(value);
+            return isNull(result) ?
+                null :
+                new VariableValidationResult(concatMessages(result), null);
+        };
+    }
+
+    export function And<T>(...delegates: VariableValidatorCallback<T>[]): VariableValidatorCallback<T>
+    {
+        if (!isDefined(delegates) || delegates.length === 0)
+            return () => null;
+
+        if (delegates.length === 1)
+            return delegates[0];
+
+        return value =>
+        {
+            const resultRange = Iteration.FilterNotNull(
+                Iteration.Map(
+                    delegates,
+                    d => d(value)));
+
+            return VariableValidationResult.Combine(resultRange);
+        };
+    }
+
+    export function AndAsync<T>(
+        ...delegates: VariableValidatorAsyncCallback<T>[]):
+        VariableValidatorAsyncCallback<T>
+    {
+        if (!isDefined(delegates) || delegates.length === 0)
+            return () => Promise.resolve(null);
+
+        if (delegates.length === 1)
+            return delegates[0];
+
+        return async value =>
+        {
+            const resultRange = Iteration.FilterNotNull(
+                await Promise.all(
+                    Iteration.Map(
+                        delegates,
+                        d => d(value))));
+
+            return VariableValidationResult.Combine(resultRange);
+        };
+    }
+
+    export function Or<T>(...delegates: VariableValidatorCallback<T>[]): VariableValidatorCallback<T>
+    {
+        if (!isDefined(delegates) || delegates.length === 0)
+            return () => null;
+
+        if (delegates.length === 1)
+            return delegates[0];
+
+        return value =>
+        {
+            const invalidResultRange: VariableValidationResult[] = [];
+
+            for (const d of delegates)
+            {
+                const result = d(value);
+                if (isNull(result))
+                    return null;
+
+                if ((isNull(result.errors) || result.errors.length === 0) &&
+                    (isNull(result.warnings) || result.warnings.length === 0))
+                    return null;
+
+                invalidResultRange.push(result);
+            }
+
+            return VariableValidationResult.Combine(invalidResultRange);
+        };
+    }
+
+    export function OrAsync<T>(
+        ...delegates: VariableValidatorAsyncCallback<T>[]):
+        VariableValidatorAsyncCallback<T>
+    {
+        if (!isDefined(delegates) || delegates.length === 0)
+            return () => Promise.resolve(null);
+
+        if (delegates.length === 1)
+            return delegates[0];
+
+        return async value =>
+        {
+            const resultRange = await Promise.all(
+                Iteration.Map(
+                    delegates,
+                    d => d(value)));
+
+            const invalidResultRange: VariableValidationResult[] = [];
+
+            for (const result of resultRange)
+            {
+                if (isNull(result))
+                    return null;
+
+                if ((isNull(result.errors) || result.errors.length === 0) &&
+                    (isNull(result.warnings) || result.warnings.length === 0))
+                    return null;
+
+                invalidResultRange.push(result);
+            }
+
+            return VariableValidationResult.Combine(invalidResultRange);
+        };
+    }
+
+    export function OrSequentialAsync<T>(
+        ...delegates: VariableValidatorAsyncCallback<T>[]):
+        VariableValidatorAsyncCallback<T>
+    {
+        if (!isDefined(delegates) || delegates.length === 0)
+            return () => Promise.resolve(null);
+
+        if (delegates.length === 1)
+            return delegates[0];
+
+        return async value =>
+        {
+            const invalidResultRange: VariableValidationResult[] = [];
+
+            for (const d of delegates)
+            {
+                const result = await d(value);
+                if (isNull(result))
+                    return null;
+
+                if ((isNull(result.errors) || result.errors.length === 0) &&
+                    (isNull(result.warnings) || result.warnings.length === 0))
+                    return null;
+
+                invalidResultRange.push(result);
+            }
+
+            return VariableValidationResult.Combine(invalidResultRange);
+        };
+    }
+
+    export function Not<T>(
+        delegate: VariableValidatorCallback<T>,
+        stateFactory: () => VariableValidationResult):
+        VariableValidatorCallback<T>
+    {
+        return value =>
+        {
+            const result = delegate(value);
+            if (isNull(result))
+                return stateFactory();
+
+            if ((isNull(result.errors) || result.errors.length === 0) &&
+                (isNull(result.warnings) || result.warnings.length === 0))
+                return stateFactory();
+
+            return null;
+        };
+    }
+
+    export function NotAsync<T>(
+        delegate: VariableValidatorAsyncCallback<T>,
+        stateFactory: () => VariableValidationResult):
+        VariableValidatorAsyncCallback<T>
+    {
+        return async value =>
+        {
+            const result = await delegate(value);
+            if (isNull(result))
+                return stateFactory();
+
+            if ((isNull(result.errors) || result.errors.length === 0) &&
+                (isNull(result.warnings) || result.warnings.length === 0))
+                return stateFactory();
+
+            return null;
+        };
+    }
+
     export namespace Primitive
     {
         export const REQUIRED = 'REQUIRED';
@@ -45,9 +281,8 @@ export namespace Validation
         export const PATTERN_NOT_MATCHED = 'PATTERN_NOT_MATCHED';
         export const PATTERN_MATCHED = 'PATTERN_MATCHED';
         export const NOT_INTEGER = 'NOT_INTEGER';
-        export const NOT_SYNCHRONIZED = 'NOT_SYNCHRONIZED';
 
-        export function Required<T = any>(): PrimitiveVariableValidatorCallback<T>
+        export function Required<T = any>(): VariableValidatorCallback<Nullable<DeepReadonly<T>>>
         {
             return value =>
             {
@@ -58,246 +293,9 @@ export namespace Validation
             };
         }
 
-        export function Sync<T>(other: IReadonlyPrimitiveVariable<T>, syncName?: string): PrimitiveVariableValidatorCallback<T>
-        {
-            const errorMsg = isDefined(syncName) ?
-                `${syncName}_${NOT_SYNCHRONIZED}` :
-                NOT_SYNCHRONIZED;
-
-            return value =>
-            {
-                if (other.changeTracker.areEqual(value, other.value))
-                    return null;
-
-                return VariableValidationResult.CreateErrors(errorMsg);
-            };
-        }
-
-        export function AsWarnings<T = any>(delegate: PrimitiveVariableValidatorCallback<T>): PrimitiveVariableValidatorCallback<T>
-        {
-            return value =>
-            {
-                const result = delegate(value);
-                return isNull(result) ?
-                    null :
-                    new VariableValidationResult(null, concatMessages(result));
-            };
-        }
-
-        export function AsWarningsAsync<T = any>(
-            delegate: PrimitiveVariableValidatorAsyncCallback<T>):
-            PrimitiveVariableValidatorAsyncCallback<T>
-        {
-            return async value =>
-            {
-                const result = await delegate(value);
-                return isNull(result) ?
-                    null :
-                    new VariableValidationResult(null, concatMessages(result));
-            };
-        }
-
-        export function AsErrors<T = any>(delegate: PrimitiveVariableValidatorCallback<T>): PrimitiveVariableValidatorCallback<T>
-        {
-            return value =>
-            {
-                const result = delegate(value);
-                return isNull(result) ?
-                    null :
-                    new VariableValidationResult(concatMessages(result), null);
-            };
-        }
-
-        export function AsErrorsAsync<T = any>(
-            delegate: PrimitiveVariableValidatorAsyncCallback<T>):
-            PrimitiveVariableValidatorAsyncCallback<T>
-        {
-            return async value =>
-            {
-                const result = await delegate(value);
-                return isNull(result) ?
-                    null :
-                    new VariableValidationResult(concatMessages(result), null);
-            };
-        }
-
-        export function And<T>(...delegates: PrimitiveVariableValidatorCallback<T>[]): PrimitiveVariableValidatorCallback<T>
-        {
-            if (!isDefined(delegates) || delegates.length === 0)
-                return () => null;
-
-            if (delegates.length === 1)
-                return delegates[0];
-
-            return value =>
-            {
-                const resultRange = Iteration.FilterNotNull(
-                    Iteration.Map(
-                        delegates,
-                        d => d(value)));
-
-                return VariableValidationResult.Combine(resultRange);
-            };
-        }
-
-        export function AndAsync<T>(
-            ...delegates: PrimitiveVariableValidatorAsyncCallback<T>[]):
-            PrimitiveVariableValidatorAsyncCallback<T>
-        {
-            if (!isDefined(delegates) || delegates.length === 0)
-                return () => Promise.resolve(null);
-
-            if (delegates.length === 1)
-                return delegates[0];
-
-            return async value =>
-            {
-                const resultRange = Iteration.FilterNotNull(
-                    await Promise.all(
-                        Iteration.Map(
-                            delegates,
-                            d => d(value))));
-
-                return VariableValidationResult.Combine(resultRange);
-            };
-        }
-
-        export function Or<T>(...delegates: PrimitiveVariableValidatorCallback<T>[]): PrimitiveVariableValidatorCallback<T>
-        {
-            if (!isDefined(delegates) || delegates.length === 0)
-                return () => null;
-
-            if (delegates.length === 1)
-                return delegates[0];
-
-            return value =>
-            {
-                const invalidResultRange: VariableValidationResult[] = [];
-
-                for (const d of delegates)
-                {
-                    const result = d(value);
-                    if (isNull(result))
-                        return null;
-
-                    if ((isNull(result.errors) || result.errors.length === 0) &&
-                        (isNull(result.warnings) || result.warnings.length === 0))
-                        return null;
-
-                    invalidResultRange.push(result);
-                }
-
-                return VariableValidationResult.Combine(invalidResultRange);
-            };
-        }
-
-        export function OrAsync<T>(
-            ...delegates: PrimitiveVariableValidatorAsyncCallback<T>[]):
-            PrimitiveVariableValidatorAsyncCallback<T>
-        {
-            if (!isDefined(delegates) || delegates.length === 0)
-                return () => Promise.resolve(null);
-
-            if (delegates.length === 1)
-                return delegates[0];
-
-            return async value =>
-            {
-                const resultRange = await Promise.all(
-                    Iteration.Map(
-                        delegates,
-                        d => d(value)));
-
-                const invalidResultRange: VariableValidationResult[] = [];
-
-                for (const result of resultRange)
-                {
-                    if (isNull(result))
-                        return null;
-
-                    if ((isNull(result.errors) || result.errors.length === 0) &&
-                        (isNull(result.warnings) || result.warnings.length === 0))
-                        return null;
-
-                    invalidResultRange.push(result);
-                }
-
-                return VariableValidationResult.Combine(invalidResultRange);
-            };
-        }
-
-        export function OrSequentialAsync<T>(
-            ...delegates: PrimitiveVariableValidatorAsyncCallback<T>[]):
-            PrimitiveVariableValidatorAsyncCallback<T>
-        {
-            if (!isDefined(delegates) || delegates.length === 0)
-                return () => Promise.resolve(null);
-
-            if (delegates.length === 1)
-                return delegates[0];
-
-            return async value =>
-            {
-                const invalidResultRange: VariableValidationResult[] = [];
-
-                for (const d of delegates)
-                {
-                    const result = await d(value);
-                    if (isNull(result))
-                        return null;
-
-                    if ((isNull(result.errors) || result.errors.length === 0) &&
-                        (isNull(result.warnings) || result.warnings.length === 0))
-                        return null;
-
-                    invalidResultRange.push(result);
-                }
-
-                return VariableValidationResult.Combine(invalidResultRange);
-            };
-        }
-
-        export function Not<T>(
-            delegate: PrimitiveVariableValidatorCallback<T>,
-            stateFactory: () => VariableValidationResult):
-            PrimitiveVariableValidatorCallback<T>
-        {
-            return value =>
-            {
-                const result = delegate(value);
-                if (isNull(result))
-                    return stateFactory();
-
-                if ((isNull(result.errors) || result.errors.length === 0) &&
-                    (isNull(result.warnings) || result.warnings.length === 0))
-                    return stateFactory();
-
-                return null;
-            };
-        }
-
-        export function NotAsync<T>(
-            delegate: PrimitiveVariableValidatorAsyncCallback<T>,
-            stateFactory: () => VariableValidationResult):
-            PrimitiveVariableValidatorAsyncCallback<T>
-        {
-            return async value =>
-            {
-                const result = await delegate(value);
-                if (isNull(result))
-                    return stateFactory();
-
-                if ((isNull(result.errors) || result.errors.length === 0) &&
-                    (isNull(result.warnings) || result.warnings.length === 0))
-                    return stateFactory();
-
-                return null;
-            };
-        }
-
         export namespace Number
         {
-            export function EqualTo(obj: Nullable<number>): PrimitiveVariableValidatorCallback<number>
+            export function EqualTo(obj: Nullable<number>): VariableValidatorCallback<Nullable<number>>
             {
                 if (isNull(obj))
                 {
@@ -320,7 +318,7 @@ export namespace Validation
                 };
             }
 
-            export function NotEqualTo(obj: Nullable<number>): PrimitiveVariableValidatorCallback<number>
+            export function NotEqualTo(obj: Nullable<number>): VariableValidatorCallback<Nullable<number>>
             {
                 if (isNull(obj))
                 {
@@ -343,7 +341,7 @@ export namespace Validation
                 };
             }
 
-            export function GreaterThan(obj: number): PrimitiveVariableValidatorCallback<number>
+            export function GreaterThan(obj: number): VariableValidatorCallback<Nullable<number>>
             {
                 const errorMsg = `${NOT_GREATER_THAN}_${obj.toString().toUpperCase()}`;
 
@@ -356,7 +354,7 @@ export namespace Validation
                 };
             }
 
-            export function LessThan(obj: number): PrimitiveVariableValidatorCallback<number>
+            export function LessThan(obj: number): VariableValidatorCallback<Nullable<number>>
             {
                 const errorMsg = `${NOT_LESS_THAN}_${obj.toString().toUpperCase()}`;
 
@@ -369,7 +367,7 @@ export namespace Validation
                 };
             }
 
-            export function GreaterThanOrEqualTo(obj: number): PrimitiveVariableValidatorCallback<number>
+            export function GreaterThanOrEqualTo(obj: number): VariableValidatorCallback<Nullable<number>>
             {
                 const errorMsg = `${NOT_GREATER_THAN_OR_EQUAL_TO}_${obj.toString().toUpperCase()}`;
 
@@ -382,7 +380,7 @@ export namespace Validation
                 };
             }
 
-            export function LessThanOrEqualTo(obj: number): PrimitiveVariableValidatorCallback<number>
+            export function LessThanOrEqualTo(obj: number): VariableValidatorCallback<Nullable<number>>
             {
                 const errorMsg = `${NOT_LESS_THAN_OR_EQUAL_TO}_${obj.toString().toUpperCase()}`;
 
@@ -395,7 +393,7 @@ export namespace Validation
                 };
             }
 
-            export function Between(min: number, max: number): PrimitiveVariableValidatorCallback<number>
+            export function Between(min: number, max: number): VariableValidatorCallback<Nullable<number>>
             {
                 const errorMsg = `${NOT_BETWEEN}_${min.toString().toUpperCase()}_${max.toString().toUpperCase()}`;
 
@@ -408,7 +406,7 @@ export namespace Validation
                 };
             }
 
-            export function NotBetween(min: number, max: number): PrimitiveVariableValidatorCallback<number>
+            export function NotBetween(min: number, max: number): VariableValidatorCallback<Nullable<number>>
             {
                 const errorMsg = `${BETWEEN}_${min.toString().toUpperCase()}_${max.toString().toUpperCase()}`;
 
@@ -421,7 +419,7 @@ export namespace Validation
                 };
             }
 
-            export function In(set: ReadonlyArray<number>, setName?: string): PrimitiveVariableValidatorCallback<number>
+            export function In(set: ReadonlyArray<number>, setName?: string): VariableValidatorCallback<Nullable<number>>
             {
                 const errorMsg = isDefined(setName) && setName.length > 0 ?
                     `${NOT_IN}_${setName}` :
@@ -438,7 +436,7 @@ export namespace Validation
                 };
             }
 
-            export function NotIn(set: ReadonlyArray<number>, setName?: string): PrimitiveVariableValidatorCallback<number>
+            export function NotIn(set: ReadonlyArray<number>, setName?: string): VariableValidatorCallback<Nullable<number>>
             {
                 const errorMsg = isDefined(setName) && setName.length > 0 ?
                     `${IN}_${setName}` :
@@ -455,7 +453,7 @@ export namespace Validation
                 };
             }
 
-            export function Integer(): PrimitiveVariableValidatorCallback<number>
+            export function Integer(): VariableValidatorCallback<Nullable<number>>
             {
                 return value =>
                 {
@@ -469,7 +467,7 @@ export namespace Validation
 
         export namespace String
         {
-            export function EqualTo(obj: Nullable<string>): PrimitiveVariableValidatorCallback<string>
+            export function EqualTo(obj: Nullable<string>): VariableValidatorCallback<Nullable<string>>
             {
                 if (isNull(obj))
                 {
@@ -492,7 +490,7 @@ export namespace Validation
                 };
             }
 
-            export function NotEqualTo(obj: Nullable<string>): PrimitiveVariableValidatorCallback<string>
+            export function NotEqualTo(obj: Nullable<string>): VariableValidatorCallback<Nullable<string>>
             {
                 if (isNull(obj))
                 {
@@ -515,7 +513,7 @@ export namespace Validation
                 };
             }
 
-            export function In(set: ReadonlyArray<string>, setName?: string): PrimitiveVariableValidatorCallback<string>
+            export function In(set: ReadonlyArray<string>, setName?: string): VariableValidatorCallback<Nullable<string>>
             {
                 const errorMsg = isDefined(setName) && setName.length > 0 ?
                     `${NOT_IN}_${setName}` :
@@ -532,7 +530,7 @@ export namespace Validation
                 };
             }
 
-            export function NotIn(set: ReadonlyArray<string>, setName?: string): PrimitiveVariableValidatorCallback<string>
+            export function NotIn(set: ReadonlyArray<string>, setName?: string): VariableValidatorCallback<Nullable<string>>
             {
                 const errorMsg = isDefined(setName) && setName.length > 0 ?
                     `${IN}_${setName}` :
@@ -549,7 +547,7 @@ export namespace Validation
                 };
             }
 
-            export function Empty(): PrimitiveVariableValidatorCallback<string>
+            export function Empty(): VariableValidatorCallback<Nullable<string>>
             {
                 return value =>
                 {
@@ -560,7 +558,7 @@ export namespace Validation
                 };
             }
 
-            export function NotEmpty(): PrimitiveVariableValidatorCallback<string>
+            export function NotEmpty(): VariableValidatorCallback<Nullable<string>>
             {
                 return value =>
                 {
@@ -571,7 +569,7 @@ export namespace Validation
                 };
             }
 
-            export function MinLength(length: number): PrimitiveVariableValidatorCallback<string>
+            export function MinLength(length: number): VariableValidatorCallback<Nullable<string>>
             {
                 const errorMsg = `${LENGTH_LESS_THAN}_${length.toString().toUpperCase()}`;
 
@@ -584,7 +582,7 @@ export namespace Validation
                 };
             }
 
-            export function MaxLength(length: number): PrimitiveVariableValidatorCallback<string>
+            export function MaxLength(length: number): VariableValidatorCallback<Nullable<string>>
             {
                 const errorMsg = `${LENGTH_GREATER_THAN}_${length.toString().toUpperCase()}`;
 
@@ -597,7 +595,7 @@ export namespace Validation
                 };
             }
 
-            export function LengthBetween(minLength: number, maxLength: number): PrimitiveVariableValidatorCallback<string>
+            export function LengthBetween(minLength: number, maxLength: number): VariableValidatorCallback<Nullable<string>>
             {
                 const errorMsg = `${LENGTH_NOT_BETWEEN}_${minLength.toString().toUpperCase()}_${maxLength.toString().toUpperCase()}`;
 
@@ -610,7 +608,7 @@ export namespace Validation
                 };
             }
 
-            export function LengthNotBetween(minLength: number, maxLength: number): PrimitiveVariableValidatorCallback<string>
+            export function LengthNotBetween(minLength: number, maxLength: number): VariableValidatorCallback<Nullable<string>>
             {
                 const errorMsg = `${LENGTH_BETWEEN}_${minLength.toString().toUpperCase()}_${maxLength.toString().toUpperCase()}`;
 
@@ -623,7 +621,7 @@ export namespace Validation
                 };
             }
 
-            export function Matches(regexp: string | RegExp, patternName?: string): PrimitiveVariableValidatorCallback<string>
+            export function Matches(regexp: string | RegExp, patternName?: string): VariableValidatorCallback<Nullable<string>>
             {
                 const errorMsg = isDefined(patternName) && patternName.length > 0 ?
                     `${patternName}_${PATTERN_NOT_MATCHED}` :
@@ -642,7 +640,7 @@ export namespace Validation
                 };
             }
 
-            export function NotMatches(regexp: string | RegExp, patternName?: string): PrimitiveVariableValidatorCallback<string>
+            export function NotMatches(regexp: string | RegExp, patternName?: string): VariableValidatorCallback<Nullable<string>>
             {
                 const errorMsg = isDefined(patternName) && patternName.length > 0 ?
                     `${patternName}_${PATTERN_MATCHED}` :
@@ -664,7 +662,7 @@ export namespace Validation
 
         export namespace Bool
         {
-            export function EqualTo(obj: Nullable<boolean>): PrimitiveVariableValidatorCallback<boolean>
+            export function EqualTo(obj: Nullable<boolean>): VariableValidatorCallback<Nullable<boolean>>
             {
                 if (isNull(obj))
                 {
@@ -687,7 +685,7 @@ export namespace Validation
                 };
             }
 
-            export function NotEqualTo(obj: Nullable<boolean>): PrimitiveVariableValidatorCallback<boolean>
+            export function NotEqualTo(obj: Nullable<boolean>): VariableValidatorCallback<Nullable<boolean>>
             {
                 if (isNull(obj))
                 {
@@ -713,7 +711,7 @@ export namespace Validation
 
         export namespace Date
         {
-            export function EqualTo(obj: Nullable<Readonly<Date>>): PrimitiveVariableValidatorCallback<Date>
+            export function EqualTo(obj: Nullable<Readonly<Date>>): VariableValidatorCallback<Nullable<DeepReadonly<Date>>>
             {
                 if (isNull(obj))
                 {
@@ -737,7 +735,7 @@ export namespace Validation
                 };
             }
 
-            export function NotEqualTo(obj: Nullable<Readonly<Date>>): PrimitiveVariableValidatorCallback<Date>
+            export function NotEqualTo(obj: Nullable<Readonly<Date>>): VariableValidatorCallback<Nullable<DeepReadonly<Date>>>
             {
                 if (isNull(obj))
                 {
@@ -761,7 +759,7 @@ export namespace Validation
                 };
             }
 
-            export function GreaterThan(obj: Readonly<Date>): PrimitiveVariableValidatorCallback<Date>
+            export function GreaterThan(obj: Readonly<Date>): VariableValidatorCallback<Nullable<DeepReadonly<Date>>>
             {
                 const errorMsg = `${NOT_GREATER_THAN}_${obj.toISOString()}`;
                 const objValueOf = obj.valueOf();
@@ -775,7 +773,7 @@ export namespace Validation
                 };
             }
 
-            export function LessThan(obj: Readonly<Date>): PrimitiveVariableValidatorCallback<Date>
+            export function LessThan(obj: Readonly<Date>): VariableValidatorCallback<Nullable<DeepReadonly<Date>>>
             {
                 const errorMsg = `${NOT_LESS_THAN}_${obj.toISOString()}`;
                 const objValueOf = obj.valueOf();
@@ -789,7 +787,7 @@ export namespace Validation
                 };
             }
 
-            export function GreaterThanOrEqualTo(obj: Readonly<Date>): PrimitiveVariableValidatorCallback<Date>
+            export function GreaterThanOrEqualTo(obj: Readonly<Date>): VariableValidatorCallback<Nullable<DeepReadonly<Date>>>
             {
                 const errorMsg = `${NOT_GREATER_THAN_OR_EQUAL_TO}_${obj.toISOString()}`;
                 const objValueOf = obj.valueOf();
@@ -803,7 +801,7 @@ export namespace Validation
                 };
             }
 
-            export function LessThanOrEqualTo(obj: Readonly<Date>): PrimitiveVariableValidatorCallback<Date>
+            export function LessThanOrEqualTo(obj: Readonly<Date>): VariableValidatorCallback<Nullable<DeepReadonly<Date>>>
             {
                 const errorMsg = `${NOT_LESS_THAN_OR_EQUAL_TO}_${obj.toISOString()}`;
                 const objValueOf = obj.valueOf();
@@ -817,7 +815,7 @@ export namespace Validation
                 };
             }
 
-            export function Between(min: Readonly<Date>, max: Readonly<Date>): PrimitiveVariableValidatorCallback<Date>
+            export function Between(min: Readonly<Date>, max: Readonly<Date>): VariableValidatorCallback<Nullable<DeepReadonly<Date>>>
             {
                 const errorMsg = `${NOT_BETWEEN}_${min.toISOString()}_${max.toISOString()}`;
                 const minValueOf = min.valueOf();
@@ -836,7 +834,7 @@ export namespace Validation
                 };
             }
 
-            export function NotBetween(min: Readonly<Date>, max: Readonly<Date>): PrimitiveVariableValidatorCallback<Date>
+            export function NotBetween(min: Readonly<Date>, max: Readonly<Date>): VariableValidatorCallback<Nullable<DeepReadonly<Date>>>
             {
                 const errorMsg = `${BETWEEN}_${min.toString().toUpperCase()}_${max.toString().toUpperCase()}`;
                 const minValueOf = min.valueOf();
@@ -855,7 +853,10 @@ export namespace Validation
                 };
             }
 
-            export function In(set: ReadonlyArray<Readonly<Date>>, setName?: string): PrimitiveVariableValidatorCallback<Date>
+            export function In(
+                set: ReadonlyArray<Readonly<Date>>,
+                setName?: string):
+                VariableValidatorCallback<Nullable<DeepReadonly<Date>>>
             {
                 const errorMsg = isDefined(setName) && setName.length > 0 ?
                     `${NOT_IN}_${setName}` :
@@ -872,7 +873,10 @@ export namespace Validation
                 };
             }
 
-            export function NotIn(set: ReadonlyArray<Readonly<Date>>, setName?: string): PrimitiveVariableValidatorCallback<Date>
+            export function NotIn(
+                set: ReadonlyArray<Readonly<Date>>,
+                setName?: string):
+                VariableValidatorCallback<Nullable<DeepReadonly<Date>>>
             {
                 const errorMsg = isDefined(setName) && setName.length > 0 ?
                     `${IN}_${setName}` :
@@ -898,7 +902,7 @@ export namespace Validation
                     readonly stringifier?: Stringifier<T>;
                     comparer?(left: Ensured<DeepReadonly<T>>, right: Ensured<DeepReadonly<T>>): boolean;
                 }):
-                PrimitiveVariableValidatorCallback<T>
+                VariableValidatorCallback<Nullable<DeepReadonly<T>>>
             {
                 if (!isDefined(params))
                     params = {};
@@ -952,7 +956,7 @@ export namespace Validation
                     readonly stringifier?: Stringifier<T>;
                     comparer?(left: Ensured<DeepReadonly<T>>, right: Ensured<DeepReadonly<T>>): boolean;
                 }):
-                PrimitiveVariableValidatorCallback<T>
+                VariableValidatorCallback<Nullable<DeepReadonly<T>>>
             {
                 if (!isDefined(params))
                     params = {};
@@ -1005,7 +1009,7 @@ export namespace Validation
                     readonly stringifier?: Stringifier<T>;
                     readonly setName?: string;
                 }):
-                PrimitiveVariableValidatorCallback<T>
+                VariableValidatorCallback<Nullable<DeepReadonly<T>>>
             {
                 if (!isDefined(params))
                     params = {};
@@ -1032,7 +1036,7 @@ export namespace Validation
                     readonly stringifier?: Stringifier<T>;
                     readonly setName?: string;
                 }):
-                PrimitiveVariableValidatorCallback<T>
+                VariableValidatorCallback<Nullable<DeepReadonly<T>>>
             {
                 if (!isDefined(params))
                     params = {};

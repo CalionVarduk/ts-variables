@@ -96,7 +96,7 @@ export abstract class ObjectVariable
             this._value,
             previousValue);
 
-        this._onReset.publish(this, event);
+        this.publishReset(event);
     }
 
     public getTrackedProperties(): IReadonlyUnorderedMap<string, IVariable>
@@ -117,5 +117,10 @@ export abstract class ObjectVariable
         this._value = ObjectVariableValue.CreateCurrent(this._properties!.value);
         this.changeTracker.configure(this);
         this.validator.configure(this);
+    }
+
+    protected publishReset(e: ObjectVariableResetEvent): void
+    {
+        this._onReset.publish(this, e);
     }
 }

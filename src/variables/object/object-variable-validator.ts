@@ -92,6 +92,11 @@ export class ObjectVariableValidator
         return reinterpretCast<Nullable<IReadonlyObjectVariable>>(super.linkedVariable);
     }
 
+    protected get properties(): Nullable<IReadonlyUnorderedMap<string, IVariable>>
+    {
+        return this._properties;
+    }
+
     private readonly _propertyListeners: IEventListener[];
     private readonly _state: MutableObjectVariableValidatorState;
 
